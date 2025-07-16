@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
-import { useParams } from 'next/navigation';
+
 
 export async function PATCH(req: NextRequest,
   { params }: { params: { id: string } }) {
