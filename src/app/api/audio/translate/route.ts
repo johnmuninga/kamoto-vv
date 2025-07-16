@@ -3,8 +3,11 @@ const {Translate} = require('@google-cloud/translate').v2;
 
 const translate = new Translate({
   projectId: process.env.GCP_PROJECT_ID,
-  keyFilename: process.env.GOOGLE_APPLICATION_CREDENTIALS, 
-});
+  credentials: {
+    client_email: process.env.GCP_CLIENT_EMAIL!,
+    private_key: (process.env.GCP_PRIVATE_KEY || "").replace(/\\n/g, "\n"),
+  }
+})
 
 export async function POST(request: Request) {
   const { text, targetLanguage = "en" } = await request.json();
