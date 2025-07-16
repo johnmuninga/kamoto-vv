@@ -33,15 +33,26 @@ export interface UpdateAudioRecord {
 }
 
 export const SOUTH_AFRICAN_PROVINCES = [
-  'Gauteng',
-  'Western Cape',
-  'KwaZulu-Natal',
-  'Eastern Cape',
-  'Limpopo',
-  'Mpumalanga',
-  'North-West',
-  'Free State',
-  'Northern Cape'
+  'Soweto',
+  'Khayelitsha',
+  'Tembisa',
+  'Mamelodi',
+  'Umlazi',
+  'Mdantsane',
+  'Seshego',
+  'KwaMashu',
+  'Mitchells Plain',
+  'Soshanguve',
+  'Katlehong',
+  'Botshabelo',
+  'Alexandra',
+  'Galeshewe',
+  'Thabong',
+  'Zwide',
+  'eSikhawini',
+  'Boipatong',
+  'Malamulele',
+  'Ikageng'
 ] as const;
 
 export const SUPPORTED_LANGUAGES = [
@@ -68,6 +79,7 @@ export const ALL_LANGUAGES = [
   "Ndebele",
   "Tswana",
   "Sotho",
+  "Ikageng",
 ] as const;
 
 export type Province = typeof SOUTH_AFRICAN_PROVINCES[number];

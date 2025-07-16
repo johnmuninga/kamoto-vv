@@ -342,7 +342,7 @@ export default function EngagementDialog({
               <Input
                 value={recordingName}
                 onChange={(e) => setRecordingName(e.target.value)}
-                placeholder="e.g. Zulu session"
+                placeholder="Please enter a name for the recording"
               />
             </div>
             <div className="space-y-2">
@@ -350,11 +350,12 @@ export default function EngagementDialog({
               <Select
                 value={community}
                 onValueChange={setCommunity}
+
               >
-                <SelectTrigger>
-                  <SelectValue placeholder="Select province" />
+                <SelectTrigger className="w-full">
+                  <SelectValue placeholder="Select community" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="w-full">
                   {SOUTH_AFRICAN_PROVINCES.map((p) => (
                     <SelectItem key={p} value={p}>
                       {p}
@@ -369,10 +370,10 @@ export default function EngagementDialog({
                 value={language}
                 onValueChange={handleLanguageChange}
               >
-                <SelectTrigger>
+                <SelectTrigger className="w-full">
                   <SelectValue placeholder="Select language" />
                 </SelectTrigger>
-                <SelectContent>
+                <SelectContent className="w-full">
                 {ALL_LANGUAGES.map((l) => (
                     <SelectItem key={l} value={l}>
                       {l}
