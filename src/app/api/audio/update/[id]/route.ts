@@ -2,9 +2,8 @@ import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
 
 
-export async function PATCH(req: NextRequest,
-  { params }: { params: { id: string } }) {
-  const id = params.id;
+export async function PATCH(req: NextRequest, context: any) {
+  const { id } = context.params
   const body = await req.json();
   const { transcription, summary, translate_to_english } = body;
 
