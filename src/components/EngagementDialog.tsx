@@ -26,7 +26,6 @@ import {
 import { SOUTH_AFRICAN_PROVINCES, SUPPORTED_LANGUAGES, ALL_LANGUAGES } from "@/lib/types"
 import { toast } from "sonner"
 import { Textarea } from "./ui/textarea"
-import { supabaseBrowserClient } from "@/lib/supabaseClient"
 
 
 interface EngagementDialogProps {
@@ -245,61 +244,54 @@ export default function EngagementDialog({
   }
 
   
-  async function handleSave() {
-    if (!recordingName || !community || !language || !transcription || !(recordedAudio || audioFile)) {
-      return toast.error("Fill all fields and transcribe first.")
+  const handleSave = async () => {
+    if (
+      !recordingName ||
+      !community ||
+      !language ||
+      !transcription ||
+      !(recordedAudio || audioFile)
+    ) {
+      return toast.error("Fill all fields and transcribe first.");
     }
   
-    setIsLoading(true)
+    setIsLoading(true);
     try {
-      const blob = recordedAudio || audioFile!
-      const timestamp = Date.now()
-      const safeName = recordingName.replace(/[^a-z0-9]/gi, "_")
-      const filename = `${timestamp}-${safeName}.webm`
+      // 1) Read the blob as base64
+      const blob = recordedAudio || audioFile!;
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = (e) => reject(e);
+        reader.readAsDataURL(blob);
+      });
   
-      
-      const { error: uploadError } = await supabaseBrowserClient
-        .storage
-        .from("audios")
-        .upload(filename, blob, {
-          contentType: blob.type,
-          upsert: false,
-        })
-      if (uploadError) throw uploadError
-  
-      
-      const { data: urlData } = supabaseBrowserClient
-        .storage
-        .from("audios")
-        .getPublicUrl(filename)
-      const publicUrl = urlData.publicUrl
-  
-      
+      // 2) POST it
+      const payload = {
+        audioData: base64,
+        socialWorkerName,
+        engagementDate,
+        recordingName,
+        community,
+        language,
+        transcription,
+      };
       const res = await fetch("/api/audio/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          url: publicUrl,
-          type: blob.type,
-          socialWorkerName,
-          engagementDate,
-          recordingName,
-          community,
-          language,
-          transcription,
-        }),
-      })
-      if (!res.ok) throw new Error("metadata save failed")
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error("save failed");
   
-      toast.success("Record saved!")
-      onClose()
-    } catch (err: any) {
-      console.error(err)
-      toast.error("Save failed: " + err.message)
+      toast.success("Record saved!");
+      onClose();
+    } catch (err) {
+      console.error(err);
+      toast.error("Save failed.");
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }
+  };
   
 
   useEffect(() => {
