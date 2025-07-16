@@ -196,10 +196,10 @@ export default function Dashboard() {
                     </TableRow>
                   </TableHeader>
                   <TableBody>
-                    {records.map((record) => (
+                    {records.map((record, key) => (
                       <TableRow key={record.id}>
                         <TableCell className="font-mono text-sm">
-                          #{record.id}
+                          #{key + 1}
                         </TableCell>
                         <TableCell className="font-medium">
                           {record.recording_name || 'Untitled'}

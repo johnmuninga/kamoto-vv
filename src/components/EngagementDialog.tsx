@@ -251,40 +251,47 @@ export default function EngagementDialog({
       !transcription ||
       !(recordedAudio || audioFile)
     ) {
-      return toast.error("Fill all fields and transcribe first.")
+      return toast.error("Fill all fields and transcribe first.");
     }
-
-    setIsLoading(true)
+  
+    setIsLoading(true);
     try {
-      const blob = recordedAudio || audioFile!
-      const reader = new FileReader()
-      reader.onloadend = async () => {
-        const base64 = reader.result as string
-        const payload = {
-          audioData: base64,
-          socialWorkerName,
-          engagementDate,
-          recordingName,
-          community,
-          language,
-          transcription,
-        }
-        const res = await fetch("/api/audio/save", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify(payload),
-        })
-        if (!res.ok) throw new Error("save failed")
-        toast.success("Record saved!")
-        onClose()
-      }
-      reader.readAsDataURL(blob)
-    } catch {
-      toast.error("Save failed.")
+      // 1) Read the blob as base64
+      const blob = recordedAudio || audioFile!;
+      const base64 = await new Promise<string>((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => resolve(reader.result as string);
+        reader.onerror = (e) => reject(e);
+        reader.readAsDataURL(blob);
+      });
+  
+      // 2) POST it
+      const payload = {
+        audioData: base64,
+        socialWorkerName,
+        engagementDate,
+        recordingName,
+        community,
+        language,
+        transcription,
+      };
+      const res = await fetch("/api/audio/save", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(payload),
+      });
+      if (!res.ok) throw new Error("save failed");
+  
+      toast.success("Record saved!");
+      onClose();
+    } catch (err) {
+      console.error(err);
+      toast.error("Save failed.");
     } finally {
-      setIsLoading(false)
+      setIsLoading(false);
     }
-  }
+  };
+  
 
   useEffect(() => {
     if (language && isLangUnsupported(language)) {
