@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { supabaseAdmin } from '@/lib/supabase';
+import { useParams } from 'next/navigation';
 
-export async function PATCH(req: NextRequest, context: { params: { id: string } }) {
-  const { id } = context.params;
+export async function PATCH(req: NextRequest,
+  { params }: { params: { id: string } }) {
+  const id = params.id;
   const body = await req.json();
   const { transcription, summary, translate_to_english } = body;
 
