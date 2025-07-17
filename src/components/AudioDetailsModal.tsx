@@ -282,8 +282,19 @@ export default function AudioDetailsModal({
                   size="sm"
                   className="gap-2"
                 >
-                  <FileText className="h-4 w-4" />
-                  Generate Summary
+                  {
+                    isSummarizing ? (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin" />
+                        Summarizing...
+                      </>
+                    ) : (
+                      <>
+                      <FileText className="h-4 w-4" />
+                      Generate Summary
+                      </>
+                    )
+                  }
                 </Button>
 
               </div>
