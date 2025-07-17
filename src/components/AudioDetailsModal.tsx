@@ -277,7 +277,7 @@ export default function AudioDetailsModal({
                 </Button>
                 <Button
                   onClick={handleGenerateSummary}
-                  disabled={!transcript.trim()}
+                  disabled={!translatedText.trim()}
                   variant="outline"
                   size="sm"
                   className="gap-2"
@@ -327,7 +327,7 @@ export default function AudioDetailsModal({
                   setSummary(e.target.value);
                   setHasUnsavedChanges(true);
                 }}
-                className="min-h-[300px]"
+                className="min-h-[300px] font-mono text-sm bg-muted"
               />
             </TabsContent>
           </Tabs>
