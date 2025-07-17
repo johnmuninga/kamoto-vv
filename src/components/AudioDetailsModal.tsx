@@ -9,9 +9,10 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { AudioRecord, SUPPORTED_LANGUAGES } from "@/lib/types";
-import { Volume2, FileText, RotateCcw, Languages, Loader2, Save } from "lucide-react";
+import { Volume2, FileText, RotateCcw, Languages, Loader2, Save, Download } from "lucide-react";
 import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog"
 import { toast } from "sonner";
+import jsPDF from "jspdf";
 
 interface AudioDetailsModalProps {
   record: AudioRecord;
@@ -185,6 +186,53 @@ export default function AudioDetailsModal({
     return <Badge variant="secondary">{language}</Badge>;
   };
 
+  function handleDownloadSummary() {
+    if (!summary.trim()) {
+      toast.error("No summary to download.");
+      return;
+    }
+  
+    const doc = new jsPDF({ unit: "pt", format: "a4" });
+    const margin = 40;
+    const pageWidth = doc.internal.pageSize.getWidth() - margin * 2;
+  
+    
+    doc.setFont("helvetica", "bold")
+       .setFontSize(18)
+       .setTextColor("#2c3e50")
+       .text("ENGAGEMENT SUMMARY", margin + pageWidth / 2, 60, { align: "center" });
+  
+    doc.setFont("helvetica", "normal")
+       .setFontSize(12)
+       .setTextColor("#4a4a4a")
+       .text(`Social Worker: ${record.social_worker_name}`, margin, 90)
+       .text(`Community: ${record.community}`, margin, 110)
+       .text(`Date: ${record.engagement_date}`, margin, 130);
+  
+    
+    doc.setDrawColor("#bdc3c7")
+       .setLineWidth(0.5)
+       .line(margin, 140, margin + pageWidth, 140);
+  
+    
+    doc.setFont("helvetica", "normal")
+       .setFontSize(12)
+       .setTextColor("#333");
+    const lines = doc.splitTextToSize(summary, pageWidth);
+    doc.text(lines, margin, 160);
+  
+    
+    const now = new Date().toLocaleString();
+    doc.setFontSize(8)
+       .setTextColor("#999")
+       .text(`Generated on ${now}`, margin, doc.internal.pageSize.getHeight() - 30);
+  
+    // Save
+    doc.save(`Engagement_Summary_${record.id}.pdf`);
+    toast.success("Summary downloaded!");
+  }
+  
+
   return (
     <>
     <Dialog open={isOpen} onOpenChange={handleClose}>
@@ -320,6 +368,16 @@ export default function AudioDetailsModal({
             </TabsContent>
 
             <TabsContent value="summary" className="space-y-4">
+            {summary.trim() && (
+              <Button
+                onClick={handleDownloadSummary}
+                variant="secondary"
+                className="gap-2"
+              >
+                <Download className="h-4 w-4" />
+                Download Summary
+              </Button>
+            )}
               <Textarea
                 placeholder="Enter a summary of the engagement session..."
                 value={summary}
