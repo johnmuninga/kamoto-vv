@@ -102,7 +102,7 @@ export default function Dashboard() {
         </div>
 
         {/* Stats Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 md:grid-cols-5 gap-4">
           <Card>
             <CardContent className="p-4">
               <div className="flex items-center gap-2">
@@ -128,6 +128,20 @@ export default function Dashboard() {
             </CardContent>
           </Card>
           <Card>
+            <CardContent className="p-4">
+              <div className="flex items-center gap-2">
+                <Languages className="h-5 w-5 text-green-500 " />
+                <div>
+                  <p className="text-sm text-muted-foreground">supported Languages </p>
+                  <p className="text-2xl font-bold">
+                    7
+                  </p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
+          <Card>
+
             <CardContent className="p-4">
               <div className="flex items-center gap-2">
                 <Users className="h-5 w-5 text-info text-blue-500" />
