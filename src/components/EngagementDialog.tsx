@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useEffect, useCallback } from "react"
+import { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { useDropzone } from "react-dropzone"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -94,6 +94,19 @@ export default function EngagementDialog({
       toast.warning("This language is unsupported. Please enter the transcript manually.");
     }
   };
+
+  const sortedLanguages = useMemo(() => {
+    
+    const supported = ALL_LANGUAGES
+      .filter((l) => SUPPORTED_LANGUAGES.includes(l as any))
+      .sort((a, b) => a.localeCompare(b));
+
+    const unsupported = ALL_LANGUAGES
+      .filter((l) => !SUPPORTED_LANGUAGES.includes(l as any))
+      .sort((a, b) => a.localeCompare(b));
+
+    return [...supported, ...unsupported];
+  }, []);
   
   useEffect(() => {
     return () => {
@@ -382,7 +395,7 @@ export default function EngagementDialog({
                   <SelectValue placeholder="Select language" />
                 </SelectTrigger>
                 <SelectContent className="w-full">
-                {ALL_LANGUAGES.map((l) => (
+                {sortedLanguages.map((l) => (
                     <SelectItem key={l} value={l}>
                       {l}
                     </SelectItem>
