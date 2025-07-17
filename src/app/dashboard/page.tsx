@@ -119,7 +119,7 @@ export default function Dashboard() {
               <div className="flex items-center gap-2">
                 <Languages className="h-5 w-5 text-green-500 " />
                 <div>
-                  <p className="text-sm text-muted-foreground">Supported Languages</p>
+                  <p className="text-sm text-muted-foreground">Translated Languages</p>
                   <p className="text-2xl font-bold">
                     {records.filter(r => r.language_supported === true).length}
                   </p>
