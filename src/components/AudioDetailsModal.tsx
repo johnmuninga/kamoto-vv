@@ -135,7 +135,7 @@ export default function AudioDetailsModal({
 
 
   const handleGenerateSummary = async () => {
-    if (!transcript.trim()) {
+    if (!translatedText.trim()) {
       toast.error("No transcript available to summarize");
       return;
     }
@@ -145,7 +145,7 @@ export default function AudioDetailsModal({
       const response = await fetch('/api/audio/summarize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ transcript }),
+        body: JSON.stringify({ translatedText }),
       });
   
       if (!response.ok) throw new Error("Failed to generate summary");
