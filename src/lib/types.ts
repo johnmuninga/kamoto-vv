@@ -59,7 +59,7 @@ export const SUPPORTED_LANGUAGES = [
   'Zulu',
   'Xhosa',
   'Afrikaans',
-  'Sesotho',
+  'Sotho',
   'Tswana',
   'Sepedi',
   'English'

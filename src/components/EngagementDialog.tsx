@@ -413,6 +413,7 @@ export default function EngagementDialog({
                   <input {...getInputProps()} />
                   <Upload className="h-8 w-8 mx-auto mb-2" />
                   <p>Upload or drag & drop</p>
+                  <p className="mt-2 text-xs text-muted-foreground font-mono">supported file .mp3, .wav, .m4a, .ogg, .webm</p>
                 </div>
               </CardContent>
             </Card>
