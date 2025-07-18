@@ -95,6 +95,8 @@ export default function EngagementDialog({
     }
   };
 
+ 
+
   const sortedLanguages = useMemo(() => {
     
     const supported = ALL_LANGUAGES
@@ -107,6 +109,16 @@ export default function EngagementDialog({
 
     return [...supported, ...unsupported];
   }, []);
+
+  const LANGUAGE_CODE_MAP: Record<string,string> = {
+    Zulu:     "zu",
+    Xhosa:    "xh",
+    Afrikaans:"af",
+    Sotho:    "st",
+    Tswana:   "tn",
+    Sepedi:   "nso",
+    English:  "en",
+  };
   
   useEffect(() => {
     return () => {
@@ -119,36 +131,46 @@ export default function EngagementDialog({
 
   
   const handleTranscribe = useCallback(async () => {
-    const blob = recordedAudio || audioFile
-    if (!blob || isManualTranscript) return
-
-    setIsTranscribing(true)
+    const blob = recordedAudio || audioFile;
+    if (!blob || isManualTranscript) return;
+  
+    
+    if (!language || !LANGUAGE_CODE_MAP[language]) {
+      toast.error("Please select a supported language before auto-transcribing.");
+      return;
+    }
+  
+    setIsTranscribing(true);
     try {
-      const fd = new FormData()
-      fd.append("file", blob, "temp.webm")
-      fd.append("model_id", "scribe_v1")
-
+      const fd = new FormData();
+      fd.append("file", blob, "temp.webm");
+      fd.append("model_id", "scribe_v1");
+      
+      fd.append("language_code", LANGUAGE_CODE_MAP[language]);
+  
       const res = await fetch(
         "https://api.elevenlabs.io/v1/speech-to-text",
         {
           method: "POST",
           headers: {
-            "xi-api-key":
-              process.env.NEXT_PUBLIC_ELEVENLABS_API_KEY ?? "",
+            "xi-api-key": process.env.NEXT_PUBLIC_ELEVENLABS_API_KEY ?? "",
           },
           body: fd,
         }
-      )
-      if (!res.ok) throw new Error(res.statusText)
-      const json = await res.json()
-      setTranscription(json.text || "")
-      toast.success("Transcribed!")
-    } catch {
-      toast.error("Transcription failed.")
+      );
+      if (!res.ok) throw new Error(res.statusText);
+  
+      const json = await res.json();
+      setTranscription(json.text || "");
+      toast.success("Transcribed in " + language + "!");
+    } catch (err) {
+      console.error("Transcription failed:", err);
+      toast.error("Transcription failed.");
     } finally {
-      setIsTranscribing(false)
+      setIsTranscribing(false);
     }
-  }, [audioFile, recordedAudio, isManualTranscript])
+  }, [audioFile, recordedAudio, isManualTranscript, language]);
+  
 
   useEffect(() => {
     if (audioUrl && !didTranscribe && !isManualTranscript) {

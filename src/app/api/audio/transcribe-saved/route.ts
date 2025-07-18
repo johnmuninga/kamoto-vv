@@ -1,53 +1,57 @@
-import { supabaseAdmin } from '@/lib/supabase'
-import { NextResponse } from 'next/server'
+// app/api/audio/transcribe/route.ts
+import { NextRequest, NextResponse } from 'next/server';
 
-export async function POST(request: Request) {
+export const config = {
+  runtime: 'edge',
+};
+
+export async function POST(req: NextRequest) {
   try {
-    const { audioUrl, audioId } = await request.json()
-
-    if (!audioUrl || !audioId) {
-      return NextResponse.json({ error: 'Missing audio URL or ID' }, { status: 400 })
+    // 1) Pull the multipart FormData from the request
+    const formData = await req.formData();
+    const file = formData.get('file');
+    if (!(file instanceof Blob)) {
+      return NextResponse.json(
+        { error: 'Missing or invalid "file" field' },
+        { status: 400 }
+      );
     }
-    if (!process.env.ELEVENLABS_API_KEY) {
-      return NextResponse.json({ error: 'ElevenLabs API key not configured' }, { status: 500 })
-    }
 
-    
-    const formData = new FormData()
-    formData.append('cloud_storage_url', audioUrl)
-    formData.append('model_id', 'scribe_v1')
+    // 2) Append Whisper‐specific parameters
+    formData.append('model', 'whisper-1');
+    // If you know the language code you can force it, e.g.:
+    // formData.append('language', 'zu');
 
-    const transcriptionResponse = await fetch(
-      'https://api.elevenlabs.io/v1/speech-to-text',
+    // 3) Call OpenAI’s transcription endpoint
+    const openaiRes = await fetch(
+      'https://api.openai.com/v1/audio/transcriptions',
       {
         method: 'POST',
-        headers: { 'xi-api-key': process.env.ELEVENLABS_API_KEY! },
+        headers: {
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        },
         body: formData,
       }
-    )
+    );
 
-    if (!transcriptionResponse.ok) {
-      const errText = await transcriptionResponse.text()
-      console.error('ElevenLabs error:', errText)
-      return NextResponse.json({ error: 'Failed to transcribe audio' }, { status: 500 })
+    if (!openaiRes.ok) {
+      const err = await openaiRes.text();
+      console.error('Whisper error:', err);
+      return NextResponse.json(
+        { error: 'Transcription service failed' },
+        { status: 502 }
+      );
     }
 
-    const { text: transcription } = await transcriptionResponse.json()
+    const { text: transcription } = await openaiRes.json();
 
-   
-    const { error: updateError } = await supabaseAdmin
-      .from('audios')
-      .update({ transcription })
-      .eq('id', audioId)
-
-    if (updateError) {
-      console.error('DB update error:', updateError)
-      return NextResponse.json({ error: 'Failed to update record' }, { status: 500 })
-    }
-
-    return NextResponse.json({ success: true, transcription })
+    // 4) Return the transcript
+    return NextResponse.json({ transcription });
   } catch (e) {
-    console.error('Unexpected error in transcription route:', e)
-    return NextResponse.json({ error: 'Internal server error' }, { status: 500 })
+    console.error('Error in /api/audio/transcribe:', e);
+    return NextResponse.json(
+      { error: 'Internal server error' },
+      { status: 500 }
+    );
   }
 }

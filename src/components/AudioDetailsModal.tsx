@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
@@ -49,33 +49,32 @@ export default function AudioDetailsModal({
     return SUPPORTED_LANGUAGES.includes(language as any);
   };
 
-  const handleRetranscribe = async () => {
-    if (!record.url) {
-      toast.error("No audio file found for transcription");
-      return;
-    }
-
-    setIsTranscribing(true);
-    try {
-      const response = await fetch('/api/audio/transcribe-saved', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ audioUrl: record.url, audioId: record.id }),
-      });
-
-      if (!response.ok) throw new Error('Failed to transcribe audio');
-
-      const data = await response.json();
-      setTranscript(data.transcription);
-      setHasUnsavedChanges(true);
-      toast.success("Audio transcribed successfully!");
-    } catch (error) {
-      console.error('Error transcribing audio:', error);
-      toast.error("Failed to transcribe audio. Please try again.");
-    } finally {
-      setIsTranscribing(false);
-    }
-  };
+  // const handlereTranscribe = useCallback(async () => {
+  //   const blob = recordedAudio || record.url;
+  //   if (!blob) return;
+  
+  //   setIsTranscribing(true);
+  //   try {
+  //     const fd = new FormData();
+  //     fd.append("file", blob, "upload.webm");
+  
+  //     const res = await fetch("/api/audio/transcribe", {
+  //       method: "POST",
+  //       body: fd,
+  //     });
+  //     if (!res.ok) throw new Error(await res.text());
+  
+  //     const { transcription } = await res.json();
+  //     setTranscript(transcription);
+  //     toast.success("Transcribed!");
+  //   } catch (err) {
+  //     console.error("Transcription failed:", err);
+  //     toast.error("Transcription failed.");
+  //   } finally {
+  //     setIsTranscribing(false);
+  //   }
+  // }, [recordedAudio, record.url]);
+  
 
   const handleTranslate = async () => {
     if (!transcript.trim()) {
@@ -286,7 +285,7 @@ export default function AudioDetailsModal({
             <TabsContent value="transcript" className="space-y-4">
               <div className="flex gap-2">
                 {/* <Button
-                  onClick={handleRetranscribe}
+                  onClick={handlereTranscribe}
                   disabled={isTranscribing || !record.url}
                   variant="outline"
                   size="sm"
