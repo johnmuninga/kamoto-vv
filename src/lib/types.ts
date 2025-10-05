@@ -32,55 +32,44 @@ export interface UpdateAudioRecord {
   summary?: string;
 }
 
-export const SOUTH_AFRICAN_PROVINCES = [
-  'Soweto',
-  'Khayelitsha',
-  'Tembisa',
-  'Mamelodi',
-  'Umlazi',
-  'Mdantsane',
-  'Seshego',
-  'KwaMashu',
-  'Mitchells Plain',
-  'Soshanguve',
-  'Katlehong',
-  'Botshabelo',
-  'Alexandra',
-  'Galeshewe',
-  'Thabong',
-  'Zwide',
-  'eSikhawini',
-  'Boipatong',
-  'Malamulele',
-  'Ikageng'
+export const KOLWEZI_COMMUNITIES = [
+  'Kolwezi Centre',
+  'Manika',
+  'Dilala',
+  'Musonoie',
+  'Kakanda',
+  'Luilu',
+  'Mutoshi',
+  'Kambove',
+  'Kipushi',
+  'Likasi',
+  'Lubumbashi',
+  'Kinshasa',
+  'Matadi',
+  'Mbuji-Mayi',
+  'Kananga',
+  'Kisangani',
+  'Bukavu',
+  'Goma',
+  'Mbandaka',
+  'Tshikapa'
 ] as const;
 
 export const SUPPORTED_LANGUAGES = [
-  'Zulu',
-  'Xhosa',
-  'Afrikaans',
-  'Sotho',
-  'Tswana',
-  'Sepedi',
-  'English'
+  'English',
+  'French',
+  'Swahili',
+  'Lingala'
 ] as const;
 
 export const ALL_LANGUAGES = [
   "English",
-  "Zulu",
-  "Xhosa",
-  "Afrikaans",
-  "Sepedi",
-  "Northern Sotho",
-  "Shona",
-  "Swati",
-  "Tsonga",
-  "Venda",
-  "Ndebele",
-  "Tswana",
-  "Sotho",
-  "Ikageng",
+  "French",
+  "Swahili",
+  "Lingala",
+  "Balubakat",
+  "Kibemba"
 ] as const;
 
-export type Province = typeof SOUTH_AFRICAN_PROVINCES[number];
+export type Community = typeof KOLWEZI_COMMUNITIES[number];
 export type Language = typeof SUPPORTED_LANGUAGES[number];

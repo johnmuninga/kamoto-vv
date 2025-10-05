@@ -23,7 +23,7 @@ import {
   Loader2,
   Trash,
 } from "lucide-react"
-import { SOUTH_AFRICAN_PROVINCES, SUPPORTED_LANGUAGES, ALL_LANGUAGES } from "@/lib/types"
+import { KOLWEZI_COMMUNITIES, SUPPORTED_LANGUAGES, ALL_LANGUAGES } from "@/lib/types"
 import { toast } from "sonner"
 import { Textarea } from "./ui/textarea"
 
@@ -64,18 +64,27 @@ export default function EngagementDialog({
   const audioCtxRef = useRef<AudioContext | null>(null)
   const analyserRef = useRef<AnalyserNode | null>(null)
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
+  const backupIntervalRef = useRef<NodeJS.Timeout | null>(null)
   const [didTranscribe, setDidTranscribe] = useState(false)
   const [isManualTranscript, setIsManualTranscript] = useState(false);
+  const [isBackedUp, setIsBackedUp] = useState(false);
+  const [backupKey, setBackupKey] = useState<string | null>(null);
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     accept: { "audio/*": [".mp3", ".wav", ".m4a", ".ogg", ".webm"] },
     maxSize: 50 * 1024 * 1024,
-    onDrop: (files) => {
+    onDrop: async (files) => {
       const f = files[0]
       setAudioFile(f)
       setRecordedAudio(null)
       setAudioUrl(URL.createObjectURL(f))
-      toast.success("Audio file uploaded.")
+      
+      // Backup uploaded file
+      const newBackupKey = generateBackupKey();
+      setBackupKey(newBackupKey);
+      await saveAudioToLocalStorage(f, newBackupKey);
+      
+      toast.success("Audio file uploaded and backed up.")
     },
     onDropRejected: () => {
       toast.error("Invalid file. Max 50MB audio only.")
@@ -83,6 +92,77 @@ export default function EngagementDialog({
   })
 
   const isLangUnsupported = (lang: any) => !SUPPORTED_LANGUAGES.includes(lang);
+
+  // Audio backup and recovery functions
+  const generateBackupKey = () => {
+    return `audio_backup_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+  };
+
+  const saveAudioToLocalStorage = async (audioBlob: Blob, key: string) => {
+    try {
+      // Check if blob is too large for localStorage (limit to 5MB)
+      if (audioBlob.size > 5 * 1024 * 1024) {
+        console.warn("Audio too large for localStorage backup, skipping...");
+        return;
+      }
+
+      const arrayBuffer = await audioBlob.arrayBuffer();
+      const uint8Array = new Uint8Array(arrayBuffer);
+      
+      // Convert to base64 in chunks to avoid call stack overflow
+      let base64 = '';
+      const chunkSize = 8192; // Process in 8KB chunks
+      
+      for (let i = 0; i < uint8Array.length; i += chunkSize) {
+        const chunk = uint8Array.slice(i, i + chunkSize);
+        base64 += btoa(String.fromCharCode(...chunk));
+      }
+      
+      const backupData = {
+        audioData: base64,
+        timestamp: Date.now(),
+        type: audioBlob.type,
+        size: audioBlob.size
+      };
+      
+      localStorage.setItem(key, JSON.stringify(backupData));
+      setIsBackedUp(true);
+      toast.success("Audio backed up locally", { duration: 2000 });
+    } catch (error) {
+      console.error("Failed to backup audio:", error);
+      toast.error("Failed to backup audio locally");
+    }
+  };
+
+  const loadAudioFromLocalStorage = (key: string): Blob | null => {
+    try {
+      const backupData = localStorage.getItem(key);
+      if (!backupData) return null;
+      
+      const { audioData, type } = JSON.parse(backupData);
+      const binaryString = atob(audioData);
+      const bytes = new Uint8Array(binaryString.length);
+      
+      // Convert binary string to bytes
+      for (let i = 0; i < binaryString.length; i++) {
+        bytes[i] = binaryString.charCodeAt(i);
+      }
+      
+      return new Blob([bytes], { type });
+    } catch (error) {
+      console.error("Failed to load audio from backup:", error);
+      return null;
+    }
+  };
+
+  const clearAudioBackup = (key: string) => {
+    try {
+      localStorage.removeItem(key);
+      setIsBackedUp(false);
+    } catch (error) {
+      console.error("Failed to clear audio backup:", error);
+    }
+  };
 
   const handleLanguageChange = (val: any) => {
     setLanguage(val);
@@ -111,13 +191,12 @@ export default function EngagementDialog({
   }, []);
 
   const LANGUAGE_CODE_MAP: Record<string,string> = {
-    Zulu:     "zu",
-    Xhosa:    "xh",
-    Afrikaans:"af",
-    Sotho:    "st",
-    Tswana:   "tn",
-    Sepedi:   "nso",
     English:  "en",
+    French:   "fr",
+    Swahili:  "sw",
+    Lingala:  "ln",
+    Balubakat: "lua",
+    Kibemba:  "bem",
   };
   
   useEffect(() => {
@@ -134,42 +213,32 @@ export default function EngagementDialog({
     const blob = recordedAudio || audioFile;
     if (!blob || isManualTranscript) return;
   
-    
-    if (!language || !LANGUAGE_CODE_MAP[language]) {
-      toast.error("Please select a supported language before auto-transcribing.");
-      return;
-    }
-  
     setIsTranscribing(true);
     try {
       const fd = new FormData();
       fd.append("file", blob, "temp.webm");
-      fd.append("model_id", "scribe_v1");
       
-      fd.append("language_code", LANGUAGE_CODE_MAP[language]);
-  
-      const res = await fetch(
-        "https://api.elevenlabs.io/v1/speech-to-text",
-        {
-          method: "POST",
-          headers: {
-            "xi-api-key": process.env.NEXT_PUBLIC_ELEVENLABS_API_KEY ?? "",
-          },
-          body: fd,
-        }
-      );
-      if (!res.ok) throw new Error(res.statusText);
+      // Use the backend transcription API instead of ElevenLabs
+      const res = await fetch("/api/audio/transcribe-saved", {
+        method: "POST",
+        body: fd,
+      });
+      
+      if (!res.ok) {
+        const errorText = await res.text();
+        throw new Error(`Transcription failed: ${errorText}`);
+      }
   
       const json = await res.json();
-      setTranscription(json.text || "");
-      toast.success("Transcribed in " + language + "!");
+      setTranscription(json.transcription || "");
+      toast.success("Transcribed successfully!");
     } catch (err) {
       console.error("Transcription failed:", err);
-      toast.error("Transcription failed.");
+      toast.error("Transcription failed. Please try manual transcription.");
     } finally {
       setIsTranscribing(false);
     }
-  }, [audioFile, recordedAudio, isManualTranscript, language]);
+  }, [audioFile, recordedAudio, isManualTranscript]);
   
 
   useEffect(() => {
@@ -186,6 +255,10 @@ export default function EngagementDialog({
       mediaRecorderRef.current = new MediaRecorder(stream)
       audioChunksRef.current = []
 
+      // Generate backup key for this recording session
+      const newBackupKey = generateBackupKey();
+      setBackupKey(newBackupKey);
+
       const ctx = new AudioContext()
       audioCtxRef.current = ctx
       const analyser = ctx.createAnalyser()
@@ -196,23 +269,39 @@ export default function EngagementDialog({
       mediaRecorderRef.current.ondataavailable = (e) => {
         audioChunksRef.current.push(e.data)
       }
-      mediaRecorderRef.current.onstop = () => {
+      
+      mediaRecorderRef.current.onstop = async () => {
         const blob = new Blob(audioChunksRef.current, { type: "audio/webm" })
         setRecordedAudio(blob)
         setAudioFile(null)
         setAudioUrl(URL.createObjectURL(blob))
+        
+        // Final backup of complete recording
+        await saveAudioToLocalStorage(blob, newBackupKey);
+        
         stream.getTracks().forEach((t) => t.stop())
         clearInterval(intervalRef.current!)
       }
 
-      mediaRecorderRef.current.start()
+      mediaRecorderRef.current.start(10000) // Start with 10-second intervals
       setIsRecording(true)
       setRecordingTime(0)
+      
+      // Timer for recording duration
       intervalRef.current = setInterval(() => {
         setRecordingTime((t) => t + 1)
       }, 1000)
+      
+      // Periodic backup every 30 seconds during recording
+      backupIntervalRef.current = setInterval(async () => {
+        if (audioChunksRef.current.length > 0) {
+          const tempBlob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+          await saveAudioToLocalStorage(tempBlob, newBackupKey);
+        }
+      }, 30000) // Backup every 30 seconds
+      
       drawWaveform()
-      toast.success("Recording started.")
+      toast.success("Recording started with auto-backup enabled.")
     } catch {
       toast.error("Cannot access microphone.")
     }
@@ -224,6 +313,13 @@ export default function EngagementDialog({
       setIsRecording(false)
       cancelAnimationFrame(animationRef.current)
       audioCtxRef.current?.close()
+      
+      // Clear backup interval
+      if (backupIntervalRef.current) {
+        clearInterval(backupIntervalRef.current);
+        backupIntervalRef.current = null;
+      }
+      
       toast.success("Recording stopped.")
     }
   }
@@ -311,6 +407,10 @@ export default function EngagementDialog({
         language,
         transcription,
       };
+      
+      // Show progress toast
+      toast.loading("Saving meeting and processing translation...", { id: "save-progress" });
+      
       const res = await fetch("/api/audio/save", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -318,11 +418,26 @@ export default function EngagementDialog({
       });
       if (!res.ok) throw new Error("save failed");
   
-      toast.success("Record saved!");
+      const data = await res.json();
+      
+      // Update progress toast
+      toast.loading("Generating summary...", { id: "save-progress" });
+      
+      // Wait a moment to show the summary step
+      await new Promise(resolve => setTimeout(resolve, 1000));
+      
+      // Clear backup after successful save
+      if (backupKey) {
+        clearAudioBackup(backupKey);
+      }
+      
+      toast.dismiss("save-progress");
+      toast.success("Meeting saved with automatic translation and summary!");
       onClose();
     } catch (err) {
       console.error(err);
-      toast.error("Save failed.");
+      toast.dismiss("save-progress");
+      toast.error("Save failed. Your audio is backed up locally and can be recovered.");
     } finally {
       setIsLoading(false);
     }
@@ -336,6 +451,43 @@ export default function EngagementDialog({
       setIsManualError(false);
     }
   }, [language]);
+
+  // Check for existing audio backup on component mount
+  useEffect(() => {
+    if (isOpen) {
+      // Look for any existing audio backup
+      const keys = Object.keys(localStorage).filter(key => key.startsWith('audio_backup_'));
+      if (keys.length > 0) {
+        // Get the most recent backup
+        const mostRecentKey = keys.sort().pop()!;
+        const backupData = localStorage.getItem(mostRecentKey);
+        if (backupData) {
+          const { timestamp } = JSON.parse(backupData);
+          const ageInMinutes = (Date.now() - timestamp) / (1000 * 60);
+          
+          if (ageInMinutes < 60) { // Only offer recovery if backup is less than 1 hour old
+            toast.info("Found a recent audio backup. Would you like to recover it?", {
+              duration: 10000,
+              action: {
+                label: "Recover",
+                onClick: () => {
+                  const recoveredBlob = loadAudioFromLocalStorage(mostRecentKey);
+                  if (recoveredBlob) {
+                    setRecordedAudio(recoveredBlob);
+                    setAudioFile(null);
+                    setAudioUrl(URL.createObjectURL(recoveredBlob));
+                    setBackupKey(mostRecentKey);
+                    setIsBackedUp(true);
+                    toast.success("Audio recovered from backup!");
+                  }
+                }
+              }
+            });
+          }
+        }
+      }
+    }
+  }, [isOpen]);
   
 
   
@@ -351,7 +503,18 @@ export default function EngagementDialog({
       setAudioUrl(null)
       setTranscription("")
       setRecordingTime(0)
-    
+      setIsBackedUp(false)
+      setBackupKey(null)
+      
+      // Clear intervals
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+      if (backupIntervalRef.current) {
+        clearInterval(backupIntervalRef.current);
+        backupIntervalRef.current = null;
+      }
     }
   }, [isOpen])
 
@@ -399,9 +562,9 @@ export default function EngagementDialog({
                   <SelectValue placeholder="Select community" />
                 </SelectTrigger>
                 <SelectContent className="w-full">
-                  {SOUTH_AFRICAN_PROVINCES.map((p) => (
-                    <SelectItem key={p} value={p}>
-                      {p}
+                  {KOLWEZI_COMMUNITIES.map((community) => (
+                    <SelectItem key={community} value={community}>
+                      {community}
                     </SelectItem>
                   ))}
                 </SelectContent>
@@ -465,6 +628,7 @@ export default function EngagementDialog({
                     }
                     size="lg"
                     className="gap-2"
+                    disabled={!isRecording && (!recordingName || !community || !language)}
                   >
                     {isRecording ? (
                       <><MicOff /><span>Stop</span></>
@@ -484,6 +648,30 @@ export default function EngagementDialog({
                         height={80}
                         className="w-full border rounded"
                       />
+                      <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+                        <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+                        <span>Auto-backup enabled</span>
+                      </div>
+                    </div>
+                  )}
+                  {!isRecording && (recordedAudio || audioFile) && (
+                    <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
+                      {isBackedUp ? (
+                        <>
+                          <div className="w-2 h-2 bg-green-500 rounded-full"></div>
+                          <span>Backed up locally</span>
+                        </>
+                      ) : (
+                        <>
+                          <div className="w-2 h-2 bg-yellow-500 rounded-full"></div>
+                          <span>Not backed up</span>
+                        </>
+                      )}
+                    </div>
+                  )}
+                  {!isRecording && (!recordingName || !community || !language) && (
+                    <div className="text-xs text-muted-foreground text-center">
+                      <p>Please fill in Recording Name, Community, and Language to start recording</p>
                     </div>
                   )}
                 </div>

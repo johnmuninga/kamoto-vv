@@ -134,7 +134,7 @@ export default function Dashboard() {
                 <div>
                   <p className="text-sm text-muted-foreground">supported Languages </p>
                   <p className="text-2xl font-bold">
-                    7
+                    {SUPPORTED_LANGUAGES.length}
                   </p>
                 </div>
               </div>
@@ -191,7 +191,7 @@ export default function Dashboard() {
                 <Link href="/">
                   <Button className="gap-2 bg-[#FFC107] text-[#1E293B] hover:bg-[#e6b800] transition-colors">
                     <FileAudio className="h-4 w-4" />
-                    Create Record
+                    Create Meeting
                   </Button>
                 </Link>
               </div>

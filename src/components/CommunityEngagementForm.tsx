@@ -60,7 +60,7 @@ export default function CommunityEngagementForm() {
             </h1>
           </div>
           <p className="text-lg text-muted-foreground">
-            Record and manage community engagement sessions across South Africa
+            Record and manage community engagement sessions across Kolwezi, DRC
           </p>
         </div>
 
@@ -68,7 +68,7 @@ export default function CommunityEngagementForm() {
         <div className="flex justify-center gap-4 mb-8">
           <Button variant="default" className="gap-2 bg-[#FFC107] text-[#1E293B] hover:bg-[#e6b800] transition-colors">
             <FileAudio className="h-4 w-4" />
-            New Recording
+            New Meeting
           </Button>
           <Link href="/dashboard">
             <Button variant="outline" className="gap-2 ">
@@ -82,7 +82,7 @@ export default function CommunityEngagementForm() {
           <CardHeader>
             <CardTitle className="flex items-center justify-center gap-2 text-2xl">
               <FileAudio className="h-6 w-6 text-[#FFC107]" />
-              Ready to Create New Recording
+              Ready to Create New Meeting
             </CardTitle>
           </CardHeader>
           <CardContent className="space-y-6">
@@ -112,7 +112,7 @@ export default function CommunityEngagementForm() {
               className="w-full text-lg py-6 bg-[#FFC107] text-[#1E293B] hover:bg-[#e6b800] transition-colors"
             >
               <FileAudio className="h-5 w-5 mr-2" />
-              Create New Recording
+              Create New Meeting
             </Button>
           </CardContent>
         </Card>
@@ -133,7 +133,7 @@ export default function CommunityEngagementForm() {
               <Users className="h-8 w-8 text-[#FFC107] mx-auto mb-2 " />
               <h3 className="font-semibold mb-2">Community Focus</h3>
               <p className="text-sm text-muted-foreground">
-                Track engagement across all SA provinces
+                Track engagement across Kolwezi communities
               </p>
             </CardContent>
           </Card>

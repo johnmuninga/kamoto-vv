@@ -86,9 +86,62 @@ export async function POST(request: Request) {
       )
     }
 
-   
+    // Automatically translate and summarize if transcription exists
+    let translatedText = '';
+    let summary = '';
+    
+    if (transcription && transcription.trim()) {
+      try {
+        // Step 1: Translate the transcription
+        const translateResponse = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/audio/translate`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ text: transcription })
+        });
+        
+        if (translateResponse.ok) {
+          const translateData = await translateResponse.json();
+          translatedText = translateData.translatedText || '';
+          
+          // Step 2: Generate summary from translated text
+          if (translatedText) {
+            const summaryResponse = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/audio/summarize`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ translatedText })
+            });
+            
+            if (summaryResponse.ok) {
+              const summaryData = await summaryResponse.json();
+              summary = summaryData.summary || '';
+            }
+          }
+        }
+        
+        // Update the record with translation and summary
+        if (translatedText || summary) {
+          await supabaseAdmin
+            .from('audios')
+            .update({
+              translate_to_english: translatedText,
+              summary: summary
+            })
+            .eq('id', dbRecord.id);
+        }
+      } catch (error) {
+        console.error('Error in automatic translation/summary:', error);
+        // Don't fail the save operation if translation/summary fails
+      }
+    }
 
-    return NextResponse.json({ success: true, record: dbRecord })
+    return NextResponse.json({ 
+      success: true, 
+      record: {
+        ...dbRecord,
+        translate_to_english: translatedText,
+        summary: summary
+      }
+    })
   } catch (e: any) {
     console.error('Route error:', e)
     return NextResponse.json(
