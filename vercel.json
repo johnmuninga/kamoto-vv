@@ -1,8 +1,7 @@
 {
-  "rewrites": [
-    {
-      "source": "/((?!api|_next|assets|favicon\\.ico|robots\\.txt|sitemap\\.xml|.*\\..*).*)",
-      "destination": "/index.html"
+  "functions": {
+    "src/app/api/**/*.ts": {
+      "runtime": "nodejs18.x"
     }
-  ]
+  }
 }
