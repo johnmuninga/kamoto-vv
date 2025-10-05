@@ -36,6 +36,8 @@ yarn-error.log*
 # vercel
 .vercel
 
+.translator/translation-466022-c5bd89c530b7.json
+
 # typescript
 *.tsbuildinfo
 next-env.d.ts
