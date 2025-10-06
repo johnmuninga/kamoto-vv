@@ -9,10 +9,9 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Card, CardContent } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
 import { AudioRecord, SUPPORTED_LANGUAGES } from "@/lib/types";
-import { Volume2, FileText, RotateCcw, Languages, Loader2, Save, Download } from "lucide-react";
+import { Volume2, FileText, Languages, Loader2, Save, Download } from "lucide-react";
 import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog"
 import { toast } from "sonner";
-import jsPDF from "jspdf";
 
 interface AudioDetailsModalProps {
   record: AudioRecord;
@@ -30,9 +29,6 @@ export default function AudioDetailsModal({
   const [transcript, setTranscript] = useState(record.transcription || "");
   const [summary, setSummary] = useState(record.summary || "");
   const [translatedText, setTranslatedText] = useState(record.translate_to_english || "");
-  const [isTranscribing, setIsTranscribing] = useState(false);
-  const [isTranslating, setIsTranslating] = useState(false);
-  const [isSummarizing, setIsSummarizing] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [hasUnsavedChanges, setHasUnsavedChanges] = useState(false);
   const [showUnsavedCloseDialog, setShowUnsavedCloseDialog] = useState(false);
@@ -76,35 +72,55 @@ export default function AudioDetailsModal({
   // }, [recordedAudio, record.url]);
   
 
-  const handleTranslate = async () => {
-    if (!transcript.trim()) {
-      toast.error("No transcript available to translate");
+  const downloadText = (text: string, filename: string, type: 'transcript' | 'summary' | 'translation') => {
+    if (!text.trim()) {
+      toast.error(`No ${type} available to download`);
       return;
     }
 
-    setIsTranslating(true);
     try {
-      const response = await fetch('/api/audio/translate', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          text: transcript,
-          sourceLanguage: record.engagement_language || 'auto'
-        }),
-      });
+      // Create a formatted text content
+      const header = `Community Engagement ${type.charAt(0).toUpperCase() + type.slice(1)}\n`;
+      const separator = "=".repeat(50) + "\n\n";
+      const metadata = `Recording Name: ${record.recording_name || 'Untitled'}\n`;
+      const communityInfo = `Community: ${record.community || 'N/A'}\n`;
+      const languageInfo = `Language: ${record.engagement_language || 'N/A'}\n`;
+      const socialWorkerInfo = `Social Worker: ${record.social_worker_name || 'N/A'}\n`;
+      const dateInfo = `Engagement Date: ${record.engagement_date || 'N/A'}\n\n`;
+      
+      const content = header + separator + 
+        metadata + communityInfo + languageInfo + socialWorkerInfo + 
+        dateInfo + 
+        `${type.charAt(0).toUpperCase() + type.slice(1)}:\n` +
+        "-".repeat(20) + "\n" +
+        text;
 
-      if (!response.ok) throw new Error('Failed to translate text');
-
-      const data = await response.json();
-      setTranslatedText(data.translatedText);
-      setHasUnsavedChanges(true);
-      toast.success("Text translated to English successfully!");
+      // Create and download the file
+      const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${filename}_${type}.txt`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      toast.success(`${type.charAt(0).toUpperCase() + type.slice(1)} downloaded successfully!`);
     } catch (error) {
-      console.error('Error translating text:', error);
-      toast.error("Failed to translate text. Please try again.");
-    } finally {
-      setIsTranslating(false);
+      console.error(`Failed to download ${type}:`, error);
+      toast.error(`Failed to download ${type}`);
     }
+  };
+
+  const downloadTranscript = () => {
+    const filename = (record.recording_name || 'transcript').replace(/[^a-zA-Z0-9]/g, '_');
+    downloadText(transcript, filename, 'transcript');
+  };
+
+  const downloadTranslation = () => {
+    const filename = (record.recording_name || 'translation').replace(/[^a-zA-Z0-9]/g, '_');
+    downloadText(translatedText, filename, 'translation');
   };
 
   const handleSave = async () => {
@@ -134,33 +150,9 @@ export default function AudioDetailsModal({
   };
 
 
-  const handleGenerateSummary = async () => {
-    if (!translatedText.trim()) {
-      toast.error("No transcript available to summarize");
-      return;
-    }
-    setIsSummarizing(true);
-  
-    try {
-      const response = await fetch('/api/audio/summarize', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ translatedText }),
-      });
-  
-      if (!response.ok) throw new Error("Failed to generate summary");
-  
-      const data = await response.json();
-      setSummary(data.summary);
-      setHasUnsavedChanges(true);
-      toast.success("Summary generated successfully!");
-    } catch (error) {
-      console.error("Summary generation failed:", error);
-      toast.error("Failed to generate summary.");
-    }finally {
-      setIsSummarizing(false);
-    }
-
+  const downloadSummary = () => {
+    const filename = (record.recording_name || 'summary').replace(/[^a-zA-Z0-9]/g, '_');
+    downloadText(summary, filename, 'summary');
   };
   
 
@@ -185,51 +177,6 @@ export default function AudioDetailsModal({
     return <Badge variant="secondary">{language}</Badge>;
   };
 
-  function handleDownloadSummary() {
-    if (!summary.trim()) {
-      toast.error("No summary to download.");
-      return;
-    }
-  
-    const doc = new jsPDF({ unit: "pt", format: "a4" });
-    const margin = 40;
-    const pageWidth = doc.internal.pageSize.getWidth() - margin * 2;
-  
-    
-    doc.setFont("helvetica", "bold")
-       .setFontSize(18)
-       .setTextColor("#2c3e50")
-       .text("ENGAGEMENT SUMMARY", margin + pageWidth / 2, 60, { align: "center" });
-  
-    doc.setFont("helvetica", "normal")
-       .setFontSize(12)
-       .setTextColor("#4a4a4a")
-       .text(`Social Worker: ${record.social_worker_name}`, margin, 90)
-       .text(`Community: ${record.community}`, margin, 110)
-       .text(`Date: ${record.engagement_date}`, margin, 130);
-  
-    
-    doc.setDrawColor("#bdc3c7")
-       .setLineWidth(0.5)
-       .line(margin, 140, margin + pageWidth, 140);
-  
-    
-    doc.setFont("helvetica", "normal")
-       .setFontSize(12)
-       .setTextColor("#333");
-    const lines = doc.splitTextToSize(summary, pageWidth);
-    doc.text(lines, margin, 160);
-  
-    
-    const now = new Date().toLocaleString();
-    doc.setFontSize(8)
-       .setTextColor("#999")
-       .text(`Generated on ${now}`, margin, doc.internal.pageSize.getHeight() - 30);
-  
-    // Save
-    doc.save(`Engagement_Summary_${record.id}.pdf`);
-    toast.success("Summary downloaded!");
-  }
   
 
   return (
@@ -283,67 +230,21 @@ export default function AudioDetailsModal({
             </TabsList>
 
             <TabsContent value="transcript" className="space-y-4">
-              <div className="flex gap-2">
-                {/* <Button
-                  onClick={handlereTranscribe}
-                  disabled={isTranscribing || !record.url}
-                  variant="outline"
-                  size="sm"
-                  className="gap-2"
-                >
-                  {isTranscribing ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Transcribing...
-                    </>
-                  ) : (
-                    <>
-                      <RotateCcw className="h-4 w-4" />
-                      Retranscribe
-                    </>
-                  )}
-                </Button> */}
-                <Button
-                  onClick={handleTranslate}
-                  disabled={isTranslating || !transcript.trim()}
-                  variant="outline"
-                  size="sm"
-                  className="gap-2"
-                >
-                  {isTranslating ? (
-                    <>
-                      <Loader2 className="h-4 w-4 animate-spin" />
-                      Translating...
-                    </>
-                  ) : (
-                    <>
-                      <Languages className="h-4 w-4" />
-                      Translate to English
-                    </>
-                  )}
-                </Button>
-                <Button
-                  onClick={handleGenerateSummary}
-                  disabled={!translatedText.trim()}
-                  variant="outline"
-                  size="sm"
-                  className="gap-2"
-                >
-                  {
-                    isSummarizing ? (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        Summarizing...
-                      </>
-                    ) : (
-                      <>
-                      <FileText className="h-4 w-4" />
-                      Generate Summary
-                      </>
-                    )
-                  }
-                </Button>
-
+              <div className="flex justify-between items-center">
+                <div className="text-sm text-muted-foreground">
+                  {transcript ? "Transcription completed automatically" : "No transcription available"}
+                </div>
+                {transcript && (
+                  <Button
+                    onClick={downloadTranscript}
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                  >
+                    <Download className="h-4 w-4" />
+                    Download Transcript
+                  </Button>
+                )}
               </div>
 
               <Textarea
@@ -358,6 +259,22 @@ export default function AudioDetailsModal({
             </TabsContent>
 
             <TabsContent value="translated" className="space-y-4">
+              <div className="flex justify-between items-center">
+                <div className="text-sm text-muted-foreground">
+                  {translatedText ? "Translation completed automatically" : "No translation available"}
+                </div>
+                {translatedText && (
+                  <Button
+                    onClick={downloadTranslation}
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                  >
+                    <Download className="h-4 w-4" />
+                    Download Translation
+                  </Button>
+                )}
+              </div>
               <Textarea
                 placeholder="Translated text will appear here..."
                 value={translatedText}
@@ -367,24 +284,30 @@ export default function AudioDetailsModal({
             </TabsContent>
 
             <TabsContent value="summary" className="space-y-4">
-            {summary.trim() && (
-              <Button
-                onClick={handleDownloadSummary}
-                variant="secondary"
-                className="gap-2"
-              >
-                <Download className="h-4 w-4" />
-                Download Summary
-              </Button>
-            )}
+              <div className="flex justify-between items-center">
+                <div className="text-sm text-muted-foreground">
+                  {summary ? "Summary generated automatically" : "No summary available"}
+                </div>
+                {summary.trim() && (
+                  <Button
+                    onClick={downloadSummary}
+                    variant="outline"
+                    size="sm"
+                    className="gap-2"
+                  >
+                    <Download className="h-4 w-4" />
+                    Download Summary
+                  </Button>
+                )}
+              </div>
               <Textarea
-                placeholder="Enter a summary of the engagement session..."
+                placeholder="Summary will appear here..."
                 value={summary}
                 onChange={(e) => {
                   setSummary(e.target.value);
                   setHasUnsavedChanges(true);
                 }}
-                className="min-h-[300px] font-mono text-sm bg-muted"
+                className="min-h-[300px] font-mono text-sm"
               />
             </TabsContent>
           </Tabs>
