@@ -24,6 +24,7 @@ import {
   Trash,
   Languages,
   FileAudio,
+  Download,
 } from "lucide-react"
 import { KOLWEZI_COMMUNITIES, SUPPORTED_LANGUAGES, ALL_LANGUAGES } from "@/lib/types"
 import { toast } from "sonner"
@@ -253,6 +254,58 @@ export default function EngagementDialog({
     } else {
       toast.error("Failed to recover data");
     }
+  };
+
+  const downloadText = (text: string, filename: string, type: 'transcript' | 'summary' | 'translation') => {
+    if (!text.trim()) {
+      toast.error(`No ${type} available to download`);
+      return;
+    }
+
+    try {
+      // Create a formatted text content
+      const header = `Community Engagement ${type.charAt(0).toUpperCase() + type.slice(1)}\n`;
+      const separator = "=".repeat(50) + "\n\n";
+      const metadata = `Recording Name: ${recordingName}\n`;
+      const communityInfo = `Community: ${community}\n`;
+      const languageInfo = `Language: ${language}\n`;
+      const socialWorkerInfo = `Social Worker: ${socialWorkerName}\n`;
+      const dateInfo = `Engagement Date: ${engagementDate}\n`;
+      const recordingTimeInfo = `Recording Duration: ${formatTime(recordingTime)}\n\n`;
+      
+      const content = header + separator + 
+        metadata + communityInfo + languageInfo + socialWorkerInfo + 
+        dateInfo + recordingTimeInfo + 
+        `${type.charAt(0).toUpperCase() + type.slice(1)}:\n` +
+        "-".repeat(20) + "\n" +
+        text;
+
+      // Create and download the file
+      const blob = new Blob([content], { type: 'text/plain;charset=utf-8' });
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = `${filename}_${type}.txt`;
+      document.body.appendChild(link);
+      link.click();
+      document.body.removeChild(link);
+      URL.revokeObjectURL(url);
+      
+      toast.success(`${type.charAt(0).toUpperCase() + type.slice(1)} downloaded successfully!`);
+    } catch (error) {
+      console.error(`Failed to download ${type}:`, error);
+      toast.error(`Failed to download ${type}`);
+    }
+  };
+
+  const downloadTranscript = () => {
+    const filename = recordingName.replace(/[^a-zA-Z0-9]/g, '_') || 'transcript';
+    downloadText(transcription, filename, 'transcript');
+  };
+
+  const downloadSummary = () => {
+    const filename = recordingName.replace(/[^a-zA-Z0-9]/g, '_') || 'summary';
+    downloadText(summary, filename, 'summary');
   };
 
   const handleLanguageChange = (val: any) => {
@@ -870,35 +923,48 @@ export default function EngagementDialog({
                   <div className="flex items-center gap-2">
                     <Volume2 /><span>Audio Preview</span>
                   </div>
-                  <AlertDialog>
-                    <AlertDialogTrigger asChild>
-                      <Button variant="ghost" size="icon" className="text-destructive">
-                        <Trash className="w-4 h-4" />
+                  <div className="flex items-center gap-2">
+                    {transcription && (
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={downloadTranscript}
+                        className="gap-2"
+                      >
+                        <Download className="w-4 h-4" />
+                        Download Transcript
                       </Button>
-                    </AlertDialogTrigger>
-                    <AlertDialogContent>
-                      <AlertDialogHeader>
-                        <AlertDialogTitle>Confirm Audio Removal</AlertDialogTitle>
-                        <p>This will remove the uploaded or recorded audio permanently from this session. You will need to re-upload or record again if you proceed.</p>
-                      </AlertDialogHeader>
-                      <AlertDialogFooter>
-                        <AlertDialogCancel>Cancel</AlertDialogCancel>
-                        <AlertDialogAction
-                          className="bg-destructive text-white"
-                          onClick={() => {
-                            setAudioUrl(null);
-                            setAudioFile(null);
-                            setRecordedAudio(null);
-                            setDidTranscribe(false);
-                            setTranscription("");
-                            toast.info("Audio removed.");
-                          }}
-                        >
-                          Yes, remove audio
-                        </AlertDialogAction>
-                      </AlertDialogFooter>
-                    </AlertDialogContent>
-                  </AlertDialog>
+                    )}
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button variant="ghost" size="icon" className="text-destructive">
+                          <Trash className="w-4 h-4" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Confirm Audio Removal</AlertDialogTitle>
+                          <p>This will remove the uploaded or recorded audio permanently from this session. You will need to re-upload or record again if you proceed.</p>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            className="bg-destructive text-white"
+                            onClick={() => {
+                              setAudioUrl(null);
+                              setAudioFile(null);
+                              setRecordedAudio(null);
+                              setDidTranscribe(false);
+                              setTranscription("");
+                              toast.info("Audio removed.");
+                            }}
+                          >
+                            Yes, remove audio
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
                 </div>
 
                 <audio controls src={audioUrl} className="w-full" />
@@ -943,15 +1009,29 @@ export default function EngagementDialog({
           {translation && (
             <Card>
               <CardContent className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <Languages className="w-5 h-5" />
-                  <span className="font-semibold">English Translation</span>
-                  {isProcessing && (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Loader2 className="animate-spin w-4 h-4" />
-                      <span>Processing...</span>
-                    </div>
-                  )}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <Languages className="w-5 h-5" />
+                    <span className="font-semibold">English Translation</span>
+                    {isProcessing && (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Loader2 className="animate-spin w-4 h-4" />
+                        <span>Processing...</span>
+                      </div>
+                    )}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      const filename = recordingName.replace(/[^a-zA-Z0-9]/g, '_') || 'translation';
+                      downloadText(translation, filename, 'translation');
+                    }}
+                    className="gap-2"
+                  >
+                    <Download className="w-4 h-4" />
+                    Download Translation
+                  </Button>
                 </div>
                 <Textarea
                   readOnly
@@ -967,15 +1047,26 @@ export default function EngagementDialog({
           {summary && (
             <Card>
               <CardContent className="space-y-4">
-                <div className="flex items-center gap-2">
-                  <FileAudio className="w-5 h-5" />
-                  <span className="font-semibold">Summary</span>
-                  {isProcessing && (
-                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
-                      <Loader2 className="animate-spin w-4 h-4" />
-                      <span>Processing...</span>
-                    </div>
-                  )}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2">
+                    <FileAudio className="w-5 h-5" />
+                    <span className="font-semibold">Summary</span>
+                    {isProcessing && (
+                      <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                        <Loader2 className="animate-spin w-4 h-4" />
+                        <span>Processing...</span>
+                      </div>
+                    )}
+                  </div>
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={downloadSummary}
+                    className="gap-2"
+                  >
+                    <Download className="w-4 h-4" />
+                    Download Summary
+                  </Button>
                 </div>
                 <Textarea
                   readOnly
@@ -1043,12 +1134,56 @@ export default function EngagementDialog({
                           {new Date(backup.timestamp).toLocaleString()}
                         </p>
                       </div>
-                      <Button
-                        onClick={() => handleRecoverData(backup)}
-                        size="sm"
-                      >
-                        Recover
-                      </Button>
+                      <div className="flex gap-2">
+                        {backup.formData?.transcription && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              const filename = (backup.formData?.recordingName || 'transcript').replace(/[^a-zA-Z0-9]/g, '_');
+                              downloadText(backup.formData.transcription, filename, 'transcript');
+                            }}
+                            className="gap-1"
+                          >
+                            <Download className="w-3 h-3" />
+                            Transcript
+                          </Button>
+                        )}
+                        {backup.formData?.translation && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              const filename = (backup.formData?.recordingName || 'translation').replace(/[^a-zA-Z0-9]/g, '_');
+                              downloadText(backup.formData.translation, filename, 'translation');
+                            }}
+                            className="gap-1"
+                          >
+                            <Download className="w-3 h-3" />
+                            Translation
+                          </Button>
+                        )}
+                        {backup.formData?.summary && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            onClick={() => {
+                              const filename = (backup.formData?.recordingName || 'summary').replace(/[^a-zA-Z0-9]/g, '_');
+                              downloadText(backup.formData.summary, filename, 'summary');
+                            }}
+                            className="gap-1"
+                          >
+                            <Download className="w-3 h-3" />
+                            Summary
+                          </Button>
+                        )}
+                        <Button
+                          onClick={() => handleRecoverData(backup)}
+                          size="sm"
+                        >
+                          Recover
+                        </Button>
+                      </div>
                     </div>
                     
                     {backup.formData && (
