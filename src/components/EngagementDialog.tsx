@@ -22,6 +22,8 @@ import {
   Volume2,
   Loader2,
   Trash,
+  Languages,
+  FileAudio,
 } from "lucide-react"
 import { KOLWEZI_COMMUNITIES, SUPPORTED_LANGUAGES, ALL_LANGUAGES } from "@/lib/types"
 import { toast } from "sonner"
@@ -69,6 +71,11 @@ export default function EngagementDialog({
   const [isManualTranscript, setIsManualTranscript] = useState(false);
   const [isBackedUp, setIsBackedUp] = useState(false);
   const [backupKey, setBackupKey] = useState<string | null>(null);
+  const [showRecoveryDialog, setShowRecoveryDialog] = useState(false);
+  const [recoveryData, setRecoveryData] = useState<any>(null);
+  const [isProcessing, setIsProcessing] = useState(false);
+  const [translation, setTranslation] = useState("");
+  const [summary, setSummary] = useState("");
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     accept: { "audio/*": [".mp3", ".wav", ".m4a", ".ogg", ".webm"] },
@@ -98,7 +105,7 @@ export default function EngagementDialog({
     return `audio_backup_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   };
 
-  const saveAudioToLocalStorage = async (audioBlob: Blob, key: string) => {
+  const saveCompleteDataToLocalStorage = async (audioBlob: Blob, key: string) => {
     try {
       // Check if blob is too large for localStorage (limit to 5MB)
       if (audioBlob.size > 5 * 1024 * 1024) {
@@ -122,24 +129,45 @@ export default function EngagementDialog({
         audioData: base64,
         timestamp: Date.now(),
         type: audioBlob.type,
-        size: audioBlob.size
+        size: audioBlob.size,
+        // Include all form data
+        formData: {
+          recordingName,
+          community,
+          language,
+          socialWorkerName,
+          engagementDate,
+          transcription,
+          translation,
+          summary,
+          isManualTranscript,
+          recordingTime
+        }
       };
       
       localStorage.setItem(key, JSON.stringify(backupData));
       setIsBackedUp(true);
-      toast.success("Audio backed up locally", { duration: 2000 });
+      toast.success("Complete data backed up locally", { duration: 2000 });
     } catch (error) {
-      console.error("Failed to backup audio:", error);
-      toast.error("Failed to backup audio locally");
+      console.error("Failed to backup data:", error);
+      toast.error("Failed to backup data locally");
     }
   };
 
-  const loadAudioFromLocalStorage = (key: string): Blob | null => {
+  const saveAudioToLocalStorage = async (audioBlob: Blob, key: string) => {
+    await saveCompleteDataToLocalStorage(audioBlob, key);
+  };
+
+  const loadCompleteDataFromLocalStorage = (key: string): { blob: Blob | null, formData: any } => {
     try {
       const backupData = localStorage.getItem(key);
-      if (!backupData) return null;
+      if (!backupData) return { blob: null, formData: null };
       
-      const { audioData, type } = JSON.parse(backupData);
+      const parsed = JSON.parse(backupData);
+      const { audioData, type, formData } = parsed;
+      
+      if (!audioData) return { blob: null, formData };
+      
       const binaryString = atob(audioData);
       const bytes = new Uint8Array(binaryString.length);
       
@@ -148,11 +176,16 @@ export default function EngagementDialog({
         bytes[i] = binaryString.charCodeAt(i);
       }
       
-      return new Blob([bytes], { type });
+      return { blob: new Blob([bytes], { type }), formData };
     } catch (error) {
-      console.error("Failed to load audio from backup:", error);
-      return null;
+      console.error("Failed to load data from backup:", error);
+      return { blob: null, formData: null };
     }
+  };
+
+  const loadAudioFromLocalStorage = (key: string): Blob | null => {
+    const { blob } = loadCompleteDataFromLocalStorage(key);
+    return blob;
   };
 
   const clearAudioBackup = (key: string) => {
@@ -161,6 +194,64 @@ export default function EngagementDialog({
       setIsBackedUp(false);
     } catch (error) {
       console.error("Failed to clear audio backup:", error);
+    }
+  };
+
+  const getAvailableBackups = () => {
+    const keys = Object.keys(localStorage).filter(key => key.startsWith('audio_backup_'));
+    return keys.map(key => {
+      const data = localStorage.getItem(key);
+      if (data) {
+        const parsed = JSON.parse(data);
+        return {
+          key,
+          timestamp: parsed.timestamp,
+          formData: parsed.formData,
+          size: parsed.size
+        };
+      }
+      return null;
+    }).filter(Boolean).sort((a, b) => (b?.timestamp || 0) - (a?.timestamp || 0));
+  };
+
+  const handleRecoveryClick = () => {
+    const backups = getAvailableBackups();
+    if (backups.length === 0) {
+      toast.info("No backup data found");
+      return;
+    }
+    setRecoveryData(backups);
+    setShowRecoveryDialog(true);
+  };
+
+  const handleRecoverData = (backup: any) => {
+    const { blob, formData } = loadCompleteDataFromLocalStorage(backup.key);
+    
+    if (blob && formData) {
+      // Restore all form data
+      setRecordingName(formData.recordingName || "");
+      setCommunity(formData.community || "");
+      setLanguage(formData.language || "");
+      setTranscription(formData.transcription || "");
+      setTranslation(formData.translation || "");
+      setSummary(formData.summary || "");
+      setRecordingTime(formData.recordingTime || 0);
+      setIsManualTranscript(formData.isManualTranscript || false);
+      
+      // Restore audio
+      setRecordedAudio(blob);
+      setAudioFile(null);
+      setAudioUrl(URL.createObjectURL(blob));
+      setBackupKey(backup.key);
+      setIsBackedUp(true);
+      
+      // Close recovery dialog
+      setShowRecoveryDialog(false);
+      setRecoveryData(null);
+      
+      toast.success("Data recovered successfully!");
+    } else {
+      toast.error("Failed to recover data");
     }
   };
 
@@ -239,6 +330,88 @@ export default function EngagementDialog({
       setIsTranscribing(false);
     }
   }, [audioFile, recordedAudio, isManualTranscript]);
+
+  const handleTranslate = async (text: string) => {
+    if (!text || isLangUnsupported(language)) return;
+    
+    try {
+      const res = await fetch("/api/audio/translate", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ text }),
+      });
+      
+      if (!res.ok) throw new Error("Translation failed");
+      
+      const json = await res.json();
+      setTranslation(json.translatedText || "");
+      return json.translatedText || "";
+    } catch (err) {
+      console.error("Translation failed:", err);
+      toast.error("Translation failed");
+      return "";
+    }
+  };
+
+  const handleSummarize = async (text: string) => {
+    if (!text) return;
+    
+    try {
+      const res = await fetch("/api/audio/summarize", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ translatedText: text }),
+      });
+      
+      if (!res.ok) throw new Error("Summary failed");
+      
+      const json = await res.json();
+      setSummary(json.summary || "");
+      return json.summary || "";
+    } catch (err) {
+      console.error("Summary failed:", err);
+      toast.error("Summary failed");
+      return "";
+    }
+  };
+
+  const processAudioAutomatically = async () => {
+    if (!transcription || isProcessing) return;
+    
+    setIsProcessing(true);
+    try {
+      // Step 1: Translate if language is not English
+      let textToSummarize = transcription;
+      if (language !== "English" && transcription) {
+        toast.loading("Translating to English...", { id: "auto-process" });
+        const translated = await handleTranslate(transcription);
+        if (translated) {
+          textToSummarize = translated;
+        }
+      }
+      
+      // Step 2: Generate summary
+      if (textToSummarize) {
+        toast.loading("Generating summary...", { id: "auto-process" });
+        await handleSummarize(textToSummarize);
+      }
+      
+      toast.dismiss("auto-process");
+      toast.success("Automatic processing completed!");
+      
+      // Update backup with new data
+      if (backupKey && (recordedAudio || audioFile)) {
+        const blob = recordedAudio || audioFile!;
+        await saveCompleteDataToLocalStorage(blob, backupKey);
+      }
+    } catch (err) {
+      console.error("Automatic processing failed:", err);
+      toast.dismiss("auto-process");
+      toast.error("Automatic processing failed");
+    } finally {
+      setIsProcessing(false);
+    }
+  };
   
 
   useEffect(() => {
@@ -247,6 +420,17 @@ export default function EngagementDialog({
       handleTranscribe()
     }
   }, [audioUrl, didTranscribe, isManualTranscript, handleTranscribe])
+
+  // Auto-process after transcription is complete
+  useEffect(() => {
+    if (transcription && !isProcessing && !translation && !summary && !isManualTranscript) {
+      // Small delay to ensure transcription is fully complete
+      const timer = setTimeout(() => {
+        processAudioAutomatically();
+      }, 1000);
+      return () => clearTimeout(timer);
+    }
+  }, [transcription, isProcessing, translation, summary, isManualTranscript]);
 
  
   const startRecording = async () => {
@@ -406,10 +590,12 @@ export default function EngagementDialog({
         community,
         language,
         transcription,
+        translate_to_english: translation,
+        summary: summary,
       };
       
       // Show progress toast
-      toast.loading("Saving meeting and processing translation...", { id: "save-progress" });
+      toast.loading("Saving meeting to database...", { id: "save-progress" });
       
       const res = await fetch("/api/audio/save", {
         method: "POST",
@@ -420,19 +606,13 @@ export default function EngagementDialog({
   
       const data = await res.json();
       
-      // Update progress toast
-      toast.loading("Generating summary...", { id: "save-progress" });
-      
-      // Wait a moment to show the summary step
-      await new Promise(resolve => setTimeout(resolve, 1000));
-      
       // Clear backup after successful save
       if (backupKey) {
         clearAudioBackup(backupKey);
       }
       
       toast.dismiss("save-progress");
-      toast.success("Meeting saved with automatic translation and summary!");
+      toast.success("Meeting saved successfully with all processing complete!");
       onClose();
     } catch (err) {
       console.error(err);
@@ -505,6 +685,9 @@ export default function EngagementDialog({
       setRecordingTime(0)
       setIsBackedUp(false)
       setBackupKey(null)
+      setTranslation("")
+      setSummary("")
+      setIsProcessing(false)
       
       // Clear intervals
       if (intervalRef.current) {
@@ -756,31 +939,172 @@ export default function EngagementDialog({
             </Card>
           )}
 
+          {/* Translation Display */}
+          {translation && (
+            <Card>
+              <CardContent className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <Languages className="w-5 h-5" />
+                  <span className="font-semibold">English Translation</span>
+                  {isProcessing && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="animate-spin w-4 h-4" />
+                      <span>Processing...</span>
+                    </div>
+                  )}
+                </div>
+                <Textarea
+                  readOnly
+                  value={translation}
+                  className="w-full h-60 border rounded p-2"
+                  placeholder="Translation will appear here..."
+                />
+              </CardContent>
+            </Card>
+          )}
+
+          {/* Summary Display */}
+          {summary && (
+            <Card>
+              <CardContent className="space-y-4">
+                <div className="flex items-center gap-2">
+                  <FileAudio className="w-5 h-5" />
+                  <span className="font-semibold">Summary</span>
+                  {isProcessing && (
+                    <div className="flex items-center gap-2 text-sm text-muted-foreground">
+                      <Loader2 className="animate-spin w-4 h-4" />
+                      <span>Processing...</span>
+                    </div>
+                  )}
+                </div>
+                <Textarea
+                  readOnly
+                  value={summary}
+                  className="w-full h-40 border rounded p-2"
+                  placeholder="Summary will appear here..."
+                />
+              </CardContent>
+            </Card>
+          )}
+
 
           {/* Actions */}
-          <div className="flex justify-end gap-2">
+          <div className="flex justify-between gap-2">
             <Button
               variant="outline"
-              onClick={onClose}
+              onClick={handleRecoveryClick}
               disabled={isLoading}
               className="disabled:opacity-50"
             >
-              Cancel
+              Recover Data
             </Button>
-            <Button
-              onClick={handleSave}
-              disabled={!transcription || isLoading}
-              className="disabled:opacity-50"
-            >
-              {isLoading ? (
-                "Saving..."
-              ) : (
-                "Save"
-              )}
-            </Button>
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                onClick={onClose}
+                disabled={isLoading}
+                className="disabled:opacity-50"
+              >
+                Cancel
+              </Button>
+              <Button
+                onClick={handleSave}
+                disabled={!transcription || isLoading}
+                className="disabled:opacity-50"
+              >
+                {isLoading ? (
+                  "Saving..."
+                ) : (
+                  "Save"
+                )}
+              </Button>
+            </div>
           </div>
         </div>
       </DialogContent>
+
+      {/* Recovery Dialog */}
+      <Dialog open={showRecoveryDialog} onOpenChange={setShowRecoveryDialog}>
+        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Recover Backed Up Data</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4">
+            {recoveryData && recoveryData.length > 0 ? (
+              recoveryData.map((backup: any, index: number) => (
+                <Card key={backup.key} className="p-4">
+                  <div className="space-y-3">
+                    <div className="flex justify-between items-start">
+                      <div>
+                        <h3 className="font-semibold">
+                          {backup.formData?.recordingName || "Unnamed Recording"}
+                        </h3>
+                        <p className="text-sm text-muted-foreground">
+                          {new Date(backup.timestamp).toLocaleString()}
+                        </p>
+                      </div>
+                      <Button
+                        onClick={() => handleRecoverData(backup)}
+                        size="sm"
+                      >
+                        Recover
+                      </Button>
+                    </div>
+                    
+                    {backup.formData && (
+                      <div className="grid grid-cols-2 gap-4 text-sm">
+                        <div>
+                          <strong>Community:</strong> {backup.formData.community || "N/A"}
+                        </div>
+                        <div>
+                          <strong>Language:</strong> {backup.formData.language || "N/A"}
+                        </div>
+                        <div>
+                          <strong>Recording Time:</strong> {backup.formData.recordingTime ? `${Math.floor(backup.formData.recordingTime / 60)}:${(backup.formData.recordingTime % 60).toString().padStart(2, '0')}` : "N/A"}
+                        </div>
+                        <div>
+                          <strong>File Size:</strong> {backup.size ? `${(backup.size / 1024 / 1024).toFixed(2)} MB` : "N/A"}
+                        </div>
+                      </div>
+                    )}
+                    
+                    {backup.formData?.transcription && (
+                      <div>
+                        <strong className="text-sm">Transcription Preview:</strong>
+                        <p className="text-sm text-muted-foreground mt-1 line-clamp-3">
+                          {backup.formData.transcription}
+                        </p>
+                      </div>
+                    )}
+                    
+                    {backup.formData?.translation && (
+                      <div>
+                        <strong className="text-sm">Translation Preview:</strong>
+                        <p className="text-sm text-muted-foreground mt-1 line-clamp-3">
+                          {backup.formData.translation}
+                        </p>
+                      </div>
+                    )}
+                    
+                    {backup.formData?.summary && (
+                      <div>
+                        <strong className="text-sm">Summary Preview:</strong>
+                        <p className="text-sm text-muted-foreground mt-1 line-clamp-3">
+                          {backup.formData.summary}
+                        </p>
+                      </div>
+                    )}
+                  </div>
+                </Card>
+              ))
+            ) : (
+              <p className="text-center text-muted-foreground py-8">
+                No backup data found
+              </p>
+            )}
+          </div>
+        </DialogContent>
+      </Dialog>
     </Dialog>
   )
 }

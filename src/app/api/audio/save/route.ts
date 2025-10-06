@@ -13,7 +13,9 @@ export async function POST(request: Request) {
       community,
       language,
       audioType,
-      transcription
+      transcription,
+      translate_to_english,
+      summary
     } = body
 
     if (
@@ -73,7 +75,9 @@ export async function POST(request: Request) {
         community,
         engagement_language: language,
         language_supported: languageSupported,
-        transcription: transcription
+        transcription: transcription,
+        translate_to_english: translate_to_english || null,
+        summary: summary || null
       })
       .select()
       .single()
@@ -86,61 +90,12 @@ export async function POST(request: Request) {
       )
     }
 
-    // Automatically translate and summarize if transcription exists
-    let translatedText = '';
-    let summary = '';
-    
-    if (transcription && transcription.trim()) {
-      try {
-        // Step 1: Translate the transcription
-        const translateResponse = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/audio/translate`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ text: transcription })
-        });
-        
-        if (translateResponse.ok) {
-          const translateData = await translateResponse.json();
-          translatedText = translateData.translatedText || '';
-          
-          // Step 2: Generate summary from translated text
-          if (translatedText) {
-            const summaryResponse = await fetch(`${process.env.NEXT_PUBLIC_BASE_URL || 'http://localhost:3000'}/api/audio/summarize`, {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ translatedText })
-            });
-            
-            if (summaryResponse.ok) {
-              const summaryData = await summaryResponse.json();
-              summary = summaryData.summary || '';
-            }
-          }
-        }
-        
-        // Update the record with translation and summary
-        if (translatedText || summary) {
-          await supabaseAdmin
-            .from('audios')
-            .update({
-              translate_to_english: translatedText,
-              summary: summary
-            })
-            .eq('id', dbRecord.id);
-        }
-      } catch (error) {
-        console.error('Error in automatic translation/summary:', error);
-        // Don't fail the save operation if translation/summary fails
-      }
-    }
+    // Translation and summary are now handled on the frontend
+    // and passed directly to this API
 
     return NextResponse.json({ 
       success: true, 
-      record: {
-        ...dbRecord,
-        translate_to_english: translatedText,
-        summary: summary
-      }
+      record: dbRecord
     })
   } catch (e: any) {
     console.error('Route error:', e)
