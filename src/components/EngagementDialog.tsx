@@ -2,6 +2,7 @@
 
 import { useState, useRef, useEffect, useCallback, useMemo } from "react"
 import { useDropzone } from "react-dropzone"
+import { useEngagement } from "@/contexts/EngagementContext"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Label } from "@/components/ui/label"
@@ -14,6 +15,7 @@ import {
 } from "@/components/ui/select"
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog"
 import { Card, CardContent } from "@/components/ui/card"
+import { Badge } from "@/components/ui/badge"
 import { AlertDialog, AlertDialogTrigger, AlertDialogContent, AlertDialogHeader, AlertDialogTitle, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog"
 import {
   Mic,
@@ -44,22 +46,18 @@ export default function EngagementDialog({
   socialWorkerName,
   engagementDate,
 }: EngagementDialogProps) {
-  const [recordingName, setRecordingName] = useState("")
-  const [community, setCommunity] = useState("")
-  const [language, setLanguage] = useState("")
-  const [audioFile, setAudioFile] = useState<File | null>(null)
-  const [recordedAudio, setRecordedAudio] = useState<Blob | null>(null)
-  const [audioUrl, setAudioUrl] = useState<string | null>(null)
+  const { data, updateData, resetData, recoverData, isRecovering } = useEngagement()
+  
+  // Local state for UI-specific functionality
   const [isManualError, setIsManualError] = useState(false)
-
   const [isRecording, setIsRecording] = useState(false)
-  const [recordingTime, setRecordingTime] = useState(0)
-
-  const [transcription, setTranscription] = useState("")
-  const [isTranscribing, setIsTranscribing] = useState(false)
-
   const [isLoading, setIsLoading] = useState(false)
+  const [showRecoveryDialog, setShowRecoveryDialog] = useState(false)
+  const [recoveryData, setRecoveryData] = useState<any>(null)
+  const [forceRefresh, setForceRefresh] = useState(0)
+  const [dataJustRecovered, setDataJustRecovered] = useState(false)
 
+  // Refs for audio recording
   const mediaRecorderRef = useRef<MediaRecorder | null>(null)
   const audioChunksRef = useRef<Blob[]>([])
   const canvasRef = useRef<HTMLCanvasElement>(null)
@@ -68,31 +66,24 @@ export default function EngagementDialog({
   const analyserRef = useRef<AnalyserNode | null>(null)
   const intervalRef = useRef<NodeJS.Timeout | null>(null)
   const backupIntervalRef = useRef<NodeJS.Timeout | null>(null)
-  const [didTranscribe, setDidTranscribe] = useState(false)
-  const [isManualTranscript, setIsManualTranscript] = useState(false);
-  const [isBackedUp, setIsBackedUp] = useState(false);
-  const [backupKey, setBackupKey] = useState<string | null>(null);
-  const [showRecoveryDialog, setShowRecoveryDialog] = useState(false);
-  const [recoveryData, setRecoveryData] = useState<any>(null);
-  const [isProcessing, setIsProcessing] = useState(false);
-  const [translation, setTranslation] = useState("");
-  const [summary, setSummary] = useState("");
 
   const { getRootProps, getInputProps, isDragActive } = useDropzone({
     accept: { "audio/*": [".mp3", ".wav", ".m4a", ".ogg", ".webm"] },
     maxSize: 50 * 1024 * 1024,
     onDrop: async (files) => {
       const f = files[0]
-      setAudioFile(f)
-      setRecordedAudio(null)
-      setAudioUrl(URL.createObjectURL(f))
+      updateData({
+        audioFile: f,
+        recordedAudio: null,
+        audioUrl: URL.createObjectURL(f)
+      })
       
       // Backup uploaded file
       const newBackupKey = generateBackupKey();
-      setBackupKey(newBackupKey);
+      updateData({ backupKey: newBackupKey });
       await saveAudioToLocalStorage(f, newBackupKey);
       
-      toast.success("Audio file uploaded and backed up.")
+      // No toast - upload completed silently
     },
     onDropRejected: () => {
       toast.error("Invalid file. Max 50MB audio only.")
@@ -135,22 +126,22 @@ export default function EngagementDialog({
         size: audioBlob.size,
         // Include all form data
         formData: {
-          recordingName,
-          community,
-          language,
-          socialWorkerName,
-          engagementDate,
-          transcription,
-          translation,
-          summary,
-          isManualTranscript,
-          recordingTime
+          recordingName: data.recordingName,
+          community: data.community,
+          language: data.language,
+          socialWorkerName: data.socialWorkerName,
+          engagementDate: data.engagementDate,
+          transcription: data.transcription,
+          translation: data.translation,
+          summary: data.summary,
+          isManualTranscript: data.isManualTranscript,
+          recordingTime: data.recordingTime
         }
       };
       
       localStorage.setItem(key, JSON.stringify(backupData));
-      setIsBackedUp(true);
-      toast.success("Complete data backed up locally", { duration: 2000 });
+      updateData({ isBackedUp: true });
+      // No toast - backup happens automatically
     } catch (error) {
       console.error("Failed to backup data:", error);
       toast.error("Failed to backup data locally");
@@ -214,7 +205,7 @@ export default function EngagementDialog({
   const clearAudioBackup = (key: string) => {
     try {
       localStorage.removeItem(key);
-      setIsBackedUp(false);
+      updateData({ isBackedUp: false });
     } catch (error) {
       console.error("Failed to clear audio backup:", error);
     }
@@ -275,41 +266,54 @@ export default function EngagementDialog({
   };
 
   const handleRecoverData = (backup: any) => {
+    console.log("Recovering data from backup:", backup);
     const { blob, formData } = loadCompleteDataFromLocalStorage(backup.key);
+    console.log("Loaded data:", { blob: !!blob, formData });
     
     if (formData) {
-      // Restore all form data
-      setRecordingName(formData.recordingName || "");
-      setCommunity(formData.community || "");
-      setLanguage(formData.language || "");
-      setTranscription(formData.transcription || "");
-      setTranslation(formData.translation || "");
-      setSummary(formData.summary || "");
-      setRecordingTime(formData.recordingTime || 0);
-      setIsManualTranscript(formData.isManualTranscript || false);
+      // Prepare recovery data with audio
+      const recoveryData = {
+        ...formData,
+        key: backup.key,
+        audioBlob: blob
+      };
       
-      // Restore audio if available
+      // Use context to recover data
+      recoverData(recoveryData);
+      
+      // Handle audio separately
       if (blob) {
-        setRecordedAudio(blob);
-        setAudioFile(null);
-        setAudioUrl(URL.createObjectURL(blob));
-        setBackupKey(backup.key);
-        setIsBackedUp(true);
-        toast.success("Data and audio recovered successfully!");
+        updateData({
+          recordedAudio: blob,
+          audioFile: null,
+          audioUrl: URL.createObjectURL(blob),
+          isBackedUp: true
+        });
+        // No toast - visual indicator will show instead
       } else {
-        // Audio recovery failed but form data is restored
-        setRecordedAudio(null);
-        setAudioFile(null);
-        setAudioUrl(null);
-        setBackupKey(backup.key);
-        setIsBackedUp(false);
-        toast.warning("Form data recovered, but audio could not be restored. You may need to re-record.");
+        updateData({
+          recordedAudio: null,
+          audioFile: null,
+          audioUrl: null,
+          isBackedUp: false
+        });
+        // No toast - visual indicator will show instead
       }
       
-      // Close recovery dialog
-      setShowRecoveryDialog(false);
-      setRecoveryData(null);
+      // Set recovery flag and force refresh
+      setDataJustRecovered(true);
+      setForceRefresh(prev => prev + 1);
+      
+      // Clear recovery flag after a few seconds
+      setTimeout(() => setDataJustRecovered(false), 5000);
+      
+      // Close recovery dialog after a short delay to show the success message
+      setTimeout(() => {
+        setShowRecoveryDialog(false);
+        setRecoveryData(null);
+      }, 1500);
     } else {
+      console.error("No form data found in backup");
       toast.error("Failed to recover data - backup may be corrupted");
     }
   };
@@ -324,12 +328,12 @@ export default function EngagementDialog({
       // Create a formatted text content
       const header = `Community Engagement ${type.charAt(0).toUpperCase() + type.slice(1)}\n`;
       const separator = "=".repeat(50) + "\n\n";
-      const metadata = `Recording Name: ${recordingName}\n`;
-      const communityInfo = `Community: ${community}\n`;
-      const languageInfo = `Language: ${language}\n`;
-      const socialWorkerInfo = `Social Worker: ${socialWorkerName}\n`;
-      const dateInfo = `Engagement Date: ${engagementDate}\n`;
-      const recordingTimeInfo = `Recording Duration: ${formatTime(recordingTime)}\n\n`;
+      const metadata = `Recording Name: ${data.recordingName}\n`;
+      const communityInfo = `Community: ${data.community}\n`;
+      const languageInfo = `Language: ${data.language}\n`;
+      const socialWorkerInfo = `Social Worker: ${data.socialWorkerName}\n`;
+      const dateInfo = `Engagement Date: ${data.engagementDate}\n`;
+      const recordingTimeInfo = `Recording Duration: ${formatTime(data.recordingTime)}\n\n`;
       
       const content = header + separator + 
         metadata + communityInfo + languageInfo + socialWorkerInfo + 
@@ -357,23 +361,29 @@ export default function EngagementDialog({
   };
 
   const downloadTranscript = () => {
-    const filename = recordingName.replace(/[^a-zA-Z0-9]/g, '_') || 'transcript';
-    downloadText(transcription, filename, 'transcript');
+    const filename = data.recordingName.replace(/[^a-zA-Z0-9]/g, '_') || 'transcript';
+    downloadText(data.transcription, filename, 'transcript');
   };
 
   const downloadSummary = () => {
-    const filename = recordingName.replace(/[^a-zA-Z0-9]/g, '_') || 'summary';
-    downloadText(summary, filename, 'summary');
+    const filename = data.recordingName.replace(/[^a-zA-Z0-9]/g, '_') || 'summary';
+    downloadText(data.summary, filename, 'summary');
   };
 
   const handleLanguageChange = (val: any) => {
-    setLanguage(val);
+    updateData({ language: val });
     const unsupported = isLangUnsupported(val);
-    setIsManualTranscript(unsupported);
+    updateData({ isManualTranscript: unsupported });
     if (unsupported) {
       setIsManualError(true);
-      setTranscription("");
+      updateData({ transcription: "" });
       toast.warning("This language is unsupported. Please enter the transcript manually.");
+    }
+    
+    // Backup form data when language changes
+    if (data.backupKey && (data.recordedAudio || data.audioFile)) {
+      const blob = data.recordedAudio || data.audioFile!;
+      saveCompleteDataToLocalStorage(blob, data.backupKey);
     }
   };
 
@@ -412,10 +422,10 @@ export default function EngagementDialog({
 
   
   const handleTranscribe = useCallback(async () => {
-    const blob = recordedAudio || audioFile;
-    if (!blob || isManualTranscript) return;
+    const blob = data.recordedAudio || data.audioFile;
+    if (!blob || data.isManualTranscript) return;
   
-    setIsTranscribing(true);
+    updateData({ isTranscribing: true });
     try {
       const fd = new FormData();
       fd.append("file", blob, "temp.webm");
@@ -432,18 +442,18 @@ export default function EngagementDialog({
       }
   
       const json = await res.json();
-      setTranscription(json.transcription || "");
-      toast.success("Transcribed successfully!");
+      updateData({ transcription: json.transcription || "" });
+      // No toast - transcription completed silently
     } catch (err) {
       console.error("Transcription failed:", err);
       toast.error("Transcription failed. Please try manual transcription.");
     } finally {
-      setIsTranscribing(false);
+      updateData({ isTranscribing: false });
     }
-  }, [audioFile, recordedAudio, isManualTranscript]);
+  }, [data.audioFile, data.recordedAudio, data.isManualTranscript]);
 
   const handleTranslate = async (text: string) => {
-    if (!text || isLangUnsupported(language)) return;
+    if (!text || isLangUnsupported(data.language)) return;
     
     try {
       const res = await fetch("/api/audio/translate", {
@@ -455,7 +465,7 @@ export default function EngagementDialog({
       if (!res.ok) throw new Error("Translation failed");
       
       const json = await res.json();
-      setTranslation(json.translatedText || "");
+      updateData({ translation: json.translatedText || "" });
       return json.translatedText || "";
     } catch (err) {
       console.error("Translation failed:", err);
@@ -477,7 +487,7 @@ export default function EngagementDialog({
       if (!res.ok) throw new Error("Summary failed");
       
       const json = await res.json();
-      setSummary(json.summary || "");
+      updateData({ summary: json.summary || "" });
       return json.summary || "";
     } catch (err) {
       console.error("Summary failed:", err);
@@ -487,15 +497,15 @@ export default function EngagementDialog({
   };
 
   const processAudioAutomatically = async () => {
-    if (!transcription || isProcessing) return;
+    if (!data.transcription || data.isProcessing) return;
     
-    setIsProcessing(true);
+    updateData({ isProcessing: true });
     try {
       // Step 1: Translate if language is not English
-      let textToSummarize = transcription;
-      if (language !== "English" && transcription) {
+      let textToSummarize = data.transcription;
+      if (data.language !== "English" && data.transcription) {
         toast.loading("Translating to English...", { id: "auto-process" });
-        const translated = await handleTranslate(transcription);
+        const translated = await handleTranslate(data.transcription);
         if (translated) {
           textToSummarize = translated;
         }
@@ -508,40 +518,80 @@ export default function EngagementDialog({
       }
       
       toast.dismiss("auto-process");
-      toast.success("Automatic processing completed!");
+      // No success toast - processing completed silently
       
       // Update backup with new data
-      if (backupKey && (recordedAudio || audioFile)) {
-        const blob = recordedAudio || audioFile!;
-        await saveCompleteDataToLocalStorage(blob, backupKey);
+      if (data.backupKey && (data.recordedAudio || data.audioFile)) {
+        const blob = data.recordedAudio || data.audioFile!;
+        await saveCompleteDataToLocalStorage(blob, data.backupKey);
       }
     } catch (err) {
       console.error("Automatic processing failed:", err);
       toast.dismiss("auto-process");
       toast.error("Automatic processing failed");
     } finally {
-      setIsProcessing(false);
+      updateData({ isProcessing: false });
     }
   };
   
 
   useEffect(() => {
-    if (audioUrl && !didTranscribe && !isManualTranscript) {
-      setDidTranscribe(true)
-      handleTranscribe()
+    if (data.audioUrl && !data.didTranscribe && !data.isManualTranscript) {
+      updateData({ didTranscribe: true });
+      handleTranscribe();
     }
-  }, [audioUrl, didTranscribe, isManualTranscript, handleTranscribe])
+  }, [data.audioUrl, data.didTranscribe, data.isManualTranscript, handleTranscribe])
 
   // Auto-process after transcription is complete
   useEffect(() => {
-    if (transcription && !isProcessing && !translation && !summary && !isManualTranscript) {
+    if (data.transcription && !data.isProcessing && !data.translation && !data.summary && !data.isManualTranscript) {
       // Small delay to ensure transcription is fully complete
       const timer = setTimeout(() => {
         processAudioAutomatically();
       }, 1000);
       return () => clearTimeout(timer);
     }
-  }, [transcription, isProcessing, translation, summary, isManualTranscript]);
+  }, [data.transcription, data.isProcessing, data.translation, data.summary, data.isManualTranscript]);
+
+  // Backup data when transcription changes
+  useEffect(() => {
+    if (data.transcription && data.backupKey && (data.recordedAudio || data.audioFile)) {
+      const blob = data.recordedAudio || data.audioFile!;
+      saveCompleteDataToLocalStorage(blob, data.backupKey);
+    }
+  }, [data.transcription, data.backupKey, data.recordedAudio, data.audioFile]);
+
+  // Backup data when translation changes
+  useEffect(() => {
+    if (data.translation && data.backupKey && (data.recordedAudio || data.audioFile)) {
+      const blob = data.recordedAudio || data.audioFile!;
+      saveCompleteDataToLocalStorage(blob, data.backupKey);
+    }
+  }, [data.translation, data.backupKey, data.recordedAudio, data.audioFile]);
+
+  // Backup data when summary changes
+  useEffect(() => {
+    if (data.summary && data.backupKey && (data.recordedAudio || data.audioFile)) {
+      const blob = data.recordedAudio || data.audioFile!;
+      saveCompleteDataToLocalStorage(blob, data.backupKey);
+    }
+  }, [data.summary, data.backupKey, data.recordedAudio, data.audioFile]);
+
+  // Backup data when recording name changes
+  useEffect(() => {
+    if (data.recordingName && data.backupKey && (data.recordedAudio || data.audioFile)) {
+      const blob = data.recordedAudio || data.audioFile!;
+      saveCompleteDataToLocalStorage(blob, data.backupKey);
+    }
+  }, [data.recordingName, data.backupKey, data.recordedAudio, data.audioFile]);
+
+  // Backup data when community changes
+  useEffect(() => {
+    if (data.community && data.backupKey && (data.recordedAudio || data.audioFile)) {
+      const blob = data.recordedAudio || data.audioFile!;
+      saveCompleteDataToLocalStorage(blob, data.backupKey);
+    }
+  }, [data.community, data.backupKey, data.recordedAudio, data.audioFile]);
 
  
   const startRecording = async () => {
@@ -552,7 +602,7 @@ export default function EngagementDialog({
 
       // Generate backup key for this recording session
       const newBackupKey = generateBackupKey();
-      setBackupKey(newBackupKey);
+      updateData({ backupKey: newBackupKey });
 
       const ctx = new AudioContext()
       audioCtxRef.current = ctx
@@ -567,9 +617,11 @@ export default function EngagementDialog({
       
       mediaRecorderRef.current.onstop = async () => {
         const blob = new Blob(audioChunksRef.current, { type: "audio/webm" })
-        setRecordedAudio(blob)
-        setAudioFile(null)
-        setAudioUrl(URL.createObjectURL(blob))
+        updateData({
+          recordedAudio: blob,
+          audioFile: null,
+          audioUrl: URL.createObjectURL(blob)
+        })
         
         // Final backup of complete recording
         await saveAudioToLocalStorage(blob, newBackupKey);
@@ -580,11 +632,11 @@ export default function EngagementDialog({
 
       mediaRecorderRef.current.start(10000) // Start with 10-second intervals
       setIsRecording(true)
-      setRecordingTime(0)
+      updateData({ recordingTime: 0 })
       
       // Timer for recording duration
       intervalRef.current = setInterval(() => {
-        setRecordingTime((t) => t + 1)
+        updateData({ recordingTime: data.recordingTime + 1 });
       }, 1000)
       
       // Periodic backup every 30 seconds during recording
@@ -596,7 +648,7 @@ export default function EngagementDialog({
       }, 30000) // Backup every 30 seconds
       
       drawWaveform()
-      toast.success("Recording started with auto-backup enabled.")
+      // No toast - recording started silently
     } catch {
       toast.error("Cannot access microphone.")
     }
@@ -615,7 +667,7 @@ export default function EngagementDialog({
         backupIntervalRef.current = null;
       }
       
-      toast.success("Recording stopped.")
+      // No toast - recording stopped silently
     }
   }
 
@@ -672,11 +724,11 @@ export default function EngagementDialog({
   
   const handleSave = async () => {
     if (
-      !recordingName ||
-      !community ||
-      !language ||
-      !transcription ||
-      !(recordedAudio || audioFile)
+      !data.recordingName ||
+      !data.community ||
+      !data.language ||
+      !data.transcription ||
+      !(data.recordedAudio || data.audioFile)
     ) {
       return toast.error("Fill all fields and transcribe first.");
     }
@@ -684,7 +736,7 @@ export default function EngagementDialog({
     setIsLoading(true);
     try {
       // 1) Read the blob as base64
-      const blob = recordedAudio || audioFile!;
+      const blob = data.recordedAudio || data.audioFile!;
       const base64 = await new Promise<string>((resolve, reject) => {
         const reader = new FileReader();
         reader.onload = () => resolve(reader.result as string);
@@ -695,14 +747,14 @@ export default function EngagementDialog({
       // 2) POST it
       const payload = {
         audioData: base64,
-        socialWorkerName,
-        engagementDate,
-        recordingName,
-        community,
-        language,
-        transcription,
-        translate_to_english: translation,
-        summary: summary,
+        socialWorkerName: data.socialWorkerName,
+        engagementDate: data.engagementDate,
+        recordingName: data.recordingName,
+        community: data.community,
+        language: data.language,
+        transcription: data.transcription,
+        translate_to_english: data.translation,
+        summary: data.summary,
       };
       
       // Show progress toast
@@ -715,11 +767,11 @@ export default function EngagementDialog({
       });
       if (!res.ok) throw new Error("save failed");
   
-      const data = await res.json();
+      const responseData = await res.json();
       
       // Clear backup after successful save
-      if (backupKey) {
-        clearAudioBackup(backupKey);
+      if (data.backupKey) {
+        clearAudioBackup(data.backupKey);
       }
       
       toast.dismiss("save-progress");
@@ -736,69 +788,101 @@ export default function EngagementDialog({
   
 
   useEffect(() => {
-    if (language && isLangUnsupported(language)) {
+    if (data.language && isLangUnsupported(data.language)) {
       setIsManualError(true);
     } else {
       setIsManualError(false);
     }
-  }, [language]);
+  }, [data.language]);
 
-  // Check for existing audio backup on component mount
+  // Auto-recover data when dialog opens
   useEffect(() => {
     if (isOpen) {
-      // Look for any existing audio backup
+      // Look for any existing complete data backup
       const keys = Object.keys(localStorage).filter(key => key.startsWith('audio_backup_'));
       if (keys.length > 0) {
-        // Get the most recent backup
-        const mostRecentKey = keys.sort().pop()!;
-        const backupData = localStorage.getItem(mostRecentKey);
-        if (backupData) {
-          const { timestamp } = JSON.parse(backupData);
-          const ageInMinutes = (Date.now() - timestamp) / (1000 * 60);
-          
-          if (ageInMinutes < 60) { // Only offer recovery if backup is less than 1 hour old
-            toast.info("Found a recent audio backup. Would you like to recover it?", {
-              duration: 10000,
-              action: {
-                label: "Recover",
-                onClick: () => {
-                  const recoveredBlob = loadAudioFromLocalStorage(mostRecentKey);
-                  if (recoveredBlob) {
-                    setRecordedAudio(recoveredBlob);
-                    setAudioFile(null);
-                    setAudioUrl(URL.createObjectURL(recoveredBlob));
-                    setBackupKey(mostRecentKey);
-                    setIsBackedUp(true);
-                    toast.success("Audio recovered from backup!");
-                  }
+        // Sort by timestamp (newest first)
+        const sortedKeys = keys.sort((a, b) => {
+          try {
+            const dataA = JSON.parse(localStorage.getItem(a) || '{}');
+            const dataB = JSON.parse(localStorage.getItem(b) || '{}');
+            return (dataB.timestamp || 0) - (dataA.timestamp || 0);
+          } catch {
+            return 0;
+          }
+        });
+        
+        const mostRecentKey = sortedKeys[0];
+        if (mostRecentKey) {
+          try {
+            const backupData = JSON.parse(localStorage.getItem(mostRecentKey) || '{}');
+            
+            // Check if this is a complete backup with form data
+            if (backupData.formData) {
+              console.log("Found complete backup data, auto-recovering:", backupData.formData);
+              
+              // Auto-recover the data
+              const { blob, formData } = loadCompleteDataFromLocalStorage(mostRecentKey);
+              
+              if (formData) {
+                // Prepare recovery data
+                const recoveryData = {
+                  ...formData,
+                  key: mostRecentKey,
+                  audioBlob: blob
+                };
+                
+                // Use context to recover data
+                recoverData(recoveryData);
+                
+                // Handle audio separately
+                if (blob) {
+                  updateData({
+                    recordedAudio: blob,
+                    audioFile: null,
+                    audioUrl: URL.createObjectURL(blob),
+                    isBackedUp: true
+                  });
+                  // No toast - visual indicator will show instead
+                } else {
+                  updateData({
+                    recordedAudio: null,
+                    audioFile: null,
+                    audioUrl: null,
+                    isBackedUp: false
+                  });
+                  // No toast - visual indicator will show instead
                 }
+                
+                // Set recovery flag and force refresh
+                setDataJustRecovered(true);
+                setForceRefresh(prev => prev + 1);
+                
+                // Clear recovery flag after a few seconds
+                setTimeout(() => setDataJustRecovered(false), 5000);
               }
-            });
+            } else {
+              // Legacy audio-only backup
+              const backupTime = backupData.timestamp || 0;
+              const now = Date.now();
+              const hoursSinceBackup = (now - backupTime) / (1000 * 60 * 60);
+              
+              // Legacy audio-only backups are handled silently now
+              // No toast notification for legacy backups
+            }
+          } catch (error) {
+            console.error("Error checking backup data:", error);
           }
         }
       }
     }
-  }, [isOpen]);
+  }, [isOpen, recoverData, updateData]);
   
 
   
   useEffect(() => {
     if (!isOpen) {
-      setIsTranscribing(false)
-      setIsTranscribing(false)
-      setRecordingName("")
-      setCommunity("")
-      setLanguage("")
-      setAudioFile(null)
-      setRecordedAudio(null)
-      setAudioUrl(null)
-      setTranscription("")
-      setRecordingTime(0)
-      setIsBackedUp(false)
-      setBackupKey(null)
-      setTranslation("")
-      setSummary("")
-      setIsProcessing(false)
+      resetData();
       
       // Clear intervals
       if (intervalRef.current) {
@@ -835,21 +919,34 @@ export default function EngagementDialog({
             </div>
           </div>
 
+          {/* Recovery Success Indicator */}
+          {dataJustRecovered && (
+            <div className="bg-green-50 border border-green-200 rounded-lg p-4 flex items-center gap-3">
+              <div className="w-2 h-2 bg-green-500 rounded-full animate-pulse"></div>
+              <div>
+                <p className="text-sm font-medium text-green-800">Data Successfully Recovered!</p>
+                <p className="text-xs text-green-600">Your backed up data has been loaded into the form below.</p>
+              </div>
+            </div>
+          )}
+
           {/* Form Fields */}
           <div className="grid md:grid-cols-2 w-full gap-4">
             <div className="space-y-2">
               <Label>Recording Name *</Label>
               <Input
-                value={recordingName}
-                onChange={(e) => setRecordingName(e.target.value)}
+                key={`recording-name-${forceRefresh}`}
+                value={data.recordingName}
+                onChange={(e) => updateData({ recordingName: e.target.value })}
                 placeholder="Please enter a name for the recording"
               />
             </div>
             <div className="space-y-2">
               <Label>Community *</Label>
               <Select
-                value={community}
-                onValueChange={setCommunity}
+                key={`community-${forceRefresh}`}
+                value={data.community}
+                onValueChange={(value) => updateData({ community: value })}
 
               >
                 <SelectTrigger className="w-full">
@@ -867,7 +964,8 @@ export default function EngagementDialog({
             <div className="space-y-2">
               <Label>Language *</Label>
               <Select
-                value={language}
+                key={`language-${forceRefresh}`}
+                value={data.language}
                 onValueChange={handleLanguageChange}
               >
                 <SelectTrigger className="w-full">
@@ -922,7 +1020,7 @@ export default function EngagementDialog({
                     }
                     size="lg"
                     className="gap-2"
-                    disabled={!isRecording && (!recordingName || !community || !language)}
+                    disabled={!isRecording && (!data.recordingName || !data.community || !data.language)}
                   >
                     {isRecording ? (
                       <><MicOff /><span>Stop</span></>
@@ -934,7 +1032,7 @@ export default function EngagementDialog({
                     <div className="space-y-2">
                       <div className="flex justify-between">
                         <span>Recording…</span>
-                        <span>{formatTime(recordingTime)}</span>
+                        <span>{formatTime(data.recordingTime)}</span>
                       </div>
                       <canvas
                         ref={canvasRef}
@@ -948,9 +1046,9 @@ export default function EngagementDialog({
                       </div>
                     </div>
                   )}
-                  {!isRecording && (recordedAudio || audioFile) && (
+                  {!isRecording && (data.recordedAudio || data.audioFile) && (
                     <div className="flex items-center justify-center gap-2 text-xs text-muted-foreground">
-                      {isBackedUp ? (
+                      {data.isBackedUp ? (
                         <>
                           <div className="w-2 h-2 bg-green-500 rounded-full"></div>
                           <span>Backed up locally</span>
@@ -963,7 +1061,7 @@ export default function EngagementDialog({
                       )}
                     </div>
                   )}
-                  {!isRecording && (!recordingName || !community || !language) && (
+                  {!isRecording && (!data.recordingName || !data.community || !data.language) && (
                     <div className="text-xs text-muted-foreground text-center">
                       <p>Please fill in Recording Name, Community, and Language to start recording</p>
                     </div>
@@ -974,7 +1072,7 @@ export default function EngagementDialog({
           </div>
 
           {/* Preview + Auto-Transcript */}
-            {audioUrl && (
+            {data.audioUrl && (
             <Card>
               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between">
@@ -982,7 +1080,7 @@ export default function EngagementDialog({
                     <Volume2 /><span>Audio Preview</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    {transcription && (
+                    {data.transcription && (
                       <Button
                         variant="outline"
                         size="sm"
@@ -1009,11 +1107,13 @@ export default function EngagementDialog({
                           <AlertDialogAction
                             className="bg-destructive text-white"
                             onClick={() => {
-                              setAudioUrl(null);
-                              setAudioFile(null);
-                              setRecordedAudio(null);
-                              setDidTranscribe(false);
-                              setTranscription("");
+                              updateData({
+                                audioUrl: null,
+                                audioFile: null,
+                                recordedAudio: null,
+                                didTranscribe: false,
+                                transcription: ""
+                              });
                               toast.info("Audio removed.");
                             }}
                           >
@@ -1025,9 +1125,9 @@ export default function EngagementDialog({
                   </div>
                 </div>
 
-                <audio controls src={audioUrl} className="w-full" />
+                <audio controls src={data.audioUrl} className="w-full" />
 
-                {isManualTranscript ? (
+                {data.isManualTranscript ? (
                   <div className="space-y-2">
                     <Label>Manual Transcription *</Label>
                     {isManualError && (
@@ -1036,24 +1136,26 @@ export default function EngagementDialog({
                       </p>
                     )}
                     <Textarea
-                      value={transcription}
-                      onChange={(e) => setTranscription(e.target.value)}
+                      key={`manual-transcription-${forceRefresh}`}
+                      value={data.transcription}
+                      onChange={(e) => updateData({ transcription: e.target.value })}
                       placeholder="Please type the transcript manually here..."
                       className="min-h-[200px]"
                     />
                   </div>
                 ) : (
                   <>
-                    {isTranscribing && (
+                    {data.isTranscribing && (
                       <div className="flex items-center gap-2 text-sm">
                         <Loader2 className="animate-spin" />
                         <span>Transcribing…</span>
                       </div>
                     )}
-                    {transcription && (
+                    {data.transcription && (
                       <Textarea
+                        key={`auto-transcription-${forceRefresh}`}
                         readOnly
-                        value={transcription}
+                        value={data.transcription}
                         className="w-full h-80 border rounded p-2"
                       />
                     )}
@@ -1064,14 +1166,14 @@ export default function EngagementDialog({
           )}
 
           {/* Translation Display */}
-          {translation && (
+          {data.translation && (
             <Card>
               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <Languages className="w-5 h-5" />
                     <span className="font-semibold">English Translation</span>
-                    {isProcessing && (
+                    {data.isProcessing && (
                       <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <Loader2 className="animate-spin w-4 h-4" />
                         <span>Processing...</span>
@@ -1082,8 +1184,8 @@ export default function EngagementDialog({
                     variant="outline"
                     size="sm"
                     onClick={() => {
-                      const filename = recordingName.replace(/[^a-zA-Z0-9]/g, '_') || 'translation';
-                      downloadText(translation, filename, 'translation');
+                      const filename = data.recordingName.replace(/[^a-zA-Z0-9]/g, '_') || 'translation';
+                      downloadText(data.translation, filename, 'translation');
                     }}
                     className="gap-2"
                   >
@@ -1092,8 +1194,9 @@ export default function EngagementDialog({
                   </Button>
                 </div>
                 <Textarea
+                  key={`translation-${forceRefresh}`}
                   readOnly
-                  value={translation}
+                  value={data.translation}
                   className="w-full h-60 border rounded p-2"
                   placeholder="Translation will appear here..."
                 />
@@ -1102,14 +1205,14 @@ export default function EngagementDialog({
           )}
 
           {/* Summary Display */}
-          {summary && (
+          {data.summary && (
             <Card>
               <CardContent className="space-y-4">
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-2">
                     <FileAudio className="w-5 h-5" />
                     <span className="font-semibold">Summary</span>
-                    {isProcessing && (
+                    {data.isProcessing && (
                       <div className="flex items-center gap-2 text-sm text-muted-foreground">
                         <Loader2 className="animate-spin w-4 h-4" />
                         <span>Processing...</span>
@@ -1127,8 +1230,9 @@ export default function EngagementDialog({
                   </Button>
                 </div>
                 <Textarea
+                  key={`summary-${forceRefresh}`}
                   readOnly
-                  value={summary}
+                  value={data.summary}
                   className="w-full h-40 border rounded p-2"
                   placeholder="Summary will appear here..."
                 />
@@ -1158,7 +1262,7 @@ export default function EngagementDialog({
               </Button>
               <Button
                 onClick={handleSave}
-                disabled={!transcription || isLoading}
+                disabled={!data.transcription || isLoading}
                 className="disabled:opacity-50"
               >
                 {isLoading ? (
@@ -1174,9 +1278,12 @@ export default function EngagementDialog({
 
       {/* Recovery Dialog */}
       <Dialog open={showRecoveryDialog} onOpenChange={setShowRecoveryDialog}>
-        <DialogContent className="max-w-4xl max-h-[80vh] overflow-y-auto">
+        <DialogContent className="min-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Recover Backed Up Data</DialogTitle>
+            <p className="text-sm text-muted-foreground">
+              Select a backup to recover your data. The data will be automatically loaded into the form.
+            </p>
           </DialogHeader>
           <div className="space-y-4">
             {recoveryData && recoveryData.length > 0 ? (
@@ -1245,18 +1352,46 @@ export default function EngagementDialog({
                     </div>
                     
                     {backup.formData && (
-                      <div className="grid grid-cols-2 gap-4 text-sm">
-                        <div>
-                          <strong>Community:</strong> {backup.formData.community || "N/A"}
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-2 gap-4 text-sm">
+                          <div>
+                            <strong>Recording Name:</strong> {backup.formData.recordingName || "N/A"}
+                          </div>
+                          <div>
+                            <strong>Community:</strong> {backup.formData.community || "N/A"}
+                          </div>
+                          <div>
+                            <strong>Language:</strong> {backup.formData.language || "N/A"}
+                          </div>
+                          <div>
+                            <strong>Recording Time:</strong> {backup.formData.recordingTime ? `${Math.floor(backup.formData.recordingTime / 60)}:${(backup.formData.recordingTime % 60).toString().padStart(2, '0')}` : "N/A"}
+                          </div>
+                          <div>
+                            <strong>File Size:</strong> {backup.size ? `${(backup.size / 1024 / 1024).toFixed(2)} MB` : "N/A"}
+                          </div>
                         </div>
-                        <div>
-                          <strong>Language:</strong> {backup.formData.language || "N/A"}
-                        </div>
-                        <div>
-                          <strong>Recording Time:</strong> {backup.formData.recordingTime ? `${Math.floor(backup.formData.recordingTime / 60)}:${(backup.formData.recordingTime % 60).toString().padStart(2, '0')}` : "N/A"}
-                        </div>
-                        <div>
-                          <strong>File Size:</strong> {backup.size ? `${(backup.size / 1024 / 1024).toFixed(2)} MB` : "N/A"}
+                        
+                        <div className="flex flex-wrap gap-2">
+                          {backup.formData.transcription && (
+                            <Badge variant="secondary" className="text-xs">
+                              ✓ Transcription
+                            </Badge>
+                          )}
+                          {backup.formData.translation && (
+                            <Badge variant="secondary" className="text-xs">
+                              ✓ Translation
+                            </Badge>
+                          )}
+                          {backup.formData.summary && (
+                            <Badge variant="secondary" className="text-xs">
+                              ✓ Summary
+                            </Badge>
+                          )}
+                          {backup.formData.isManualTranscript && (
+                            <Badge variant="outline" className="text-xs">
+                              Manual Transcript
+                            </Badge>
+                          )}
                         </div>
                       </div>
                     )}
