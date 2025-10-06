@@ -123,7 +123,9 @@ export default function EngagementDialog({
       
       for (let i = 0; i < uint8Array.length; i += chunkSize) {
         const chunk = uint8Array.slice(i, i + chunkSize);
-        base64 += btoa(String.fromCharCode(...chunk));
+        // Use Array.from to convert Uint8Array to regular array for btoa
+        const chunkArray = Array.from(chunk);
+        base64 += btoa(String.fromCharCode(...chunkArray));
       }
       
       const backupData = {
@@ -169,7 +171,17 @@ export default function EngagementDialog({
       
       if (!audioData) return { blob: null, formData };
       
-      const binaryString = atob(audioData);
+      // Check if the data is already a valid base64 string
+      let binaryString;
+      try {
+        // Try to decode as base64
+        binaryString = atob(audioData);
+      } catch (base64Error) {
+        console.warn("Data is not base64 encoded, treating as raw data");
+        // If it's not base64, treat it as raw string data
+        binaryString = audioData;
+      }
+      
       const bytes = new Uint8Array(binaryString.length);
       
       // Convert binary string to bytes
@@ -177,9 +189,19 @@ export default function EngagementDialog({
         bytes[i] = binaryString.charCodeAt(i);
       }
       
-      return { blob: new Blob([bytes], { type }), formData };
+      return { blob: new Blob([bytes], { type: type || 'audio/webm' }), formData };
     } catch (error) {
       console.error("Failed to load data from backup:", error);
+      // Return form data even if audio fails to load
+      const backupData = localStorage.getItem(key);
+      if (backupData) {
+        try {
+          const parsed = JSON.parse(backupData);
+          return { blob: null, formData: parsed.formData || null };
+        } catch (parseError) {
+          console.error("Failed to parse backup data:", parseError);
+        }
+      }
       return { blob: null, formData: null };
     }
   };
@@ -200,19 +222,46 @@ export default function EngagementDialog({
 
   const getAvailableBackups = () => {
     const keys = Object.keys(localStorage).filter(key => key.startsWith('audio_backup_'));
-    return keys.map(key => {
-      const data = localStorage.getItem(key);
-      if (data) {
-        const parsed = JSON.parse(data);
-        return {
-          key,
-          timestamp: parsed.timestamp,
-          formData: parsed.formData,
-          size: parsed.size
-        };
+    const validBackups: any[] = [];
+    const corruptedKeys: string[] = [];
+    
+    keys.forEach(key => {
+      try {
+        const data = localStorage.getItem(key);
+        if (data) {
+          const parsed = JSON.parse(data);
+          // Test if audio data can be decoded
+          if (parsed.audioData) {
+            try {
+              atob(parsed.audioData.substring(0, 100)); // Test first 100 chars
+            } catch (e) {
+              // If base64 decoding fails, mark as corrupted
+              corruptedKeys.push(key);
+              return;
+            }
+          }
+          validBackups.push({
+            key,
+            timestamp: parsed.timestamp,
+            formData: parsed.formData,
+            size: parsed.size
+          });
+        }
+      } catch (error) {
+        console.warn(`Corrupted backup data found: ${key}`, error);
+        corruptedKeys.push(key);
       }
-      return null;
-    }).filter(Boolean).sort((a, b) => (b?.timestamp || 0) - (a?.timestamp || 0));
+    });
+    
+    // Clean up corrupted backups
+    if (corruptedKeys.length > 0) {
+      corruptedKeys.forEach(key => {
+        localStorage.removeItem(key);
+      });
+      toast.info(`Cleaned up ${corruptedKeys.length} corrupted backup(s)`);
+    }
+    
+    return validBackups.sort((a, b) => (b?.timestamp || 0) - (a?.timestamp || 0));
   };
 
   const handleRecoveryClick = () => {
@@ -228,7 +277,7 @@ export default function EngagementDialog({
   const handleRecoverData = (backup: any) => {
     const { blob, formData } = loadCompleteDataFromLocalStorage(backup.key);
     
-    if (blob && formData) {
+    if (formData) {
       // Restore all form data
       setRecordingName(formData.recordingName || "");
       setCommunity(formData.community || "");
@@ -239,20 +288,29 @@ export default function EngagementDialog({
       setRecordingTime(formData.recordingTime || 0);
       setIsManualTranscript(formData.isManualTranscript || false);
       
-      // Restore audio
-      setRecordedAudio(blob);
-      setAudioFile(null);
-      setAudioUrl(URL.createObjectURL(blob));
-      setBackupKey(backup.key);
-      setIsBackedUp(true);
+      // Restore audio if available
+      if (blob) {
+        setRecordedAudio(blob);
+        setAudioFile(null);
+        setAudioUrl(URL.createObjectURL(blob));
+        setBackupKey(backup.key);
+        setIsBackedUp(true);
+        toast.success("Data and audio recovered successfully!");
+      } else {
+        // Audio recovery failed but form data is restored
+        setRecordedAudio(null);
+        setAudioFile(null);
+        setAudioUrl(null);
+        setBackupKey(backup.key);
+        setIsBackedUp(false);
+        toast.warning("Form data recovered, but audio could not be restored. You may need to re-record.");
+      }
       
       // Close recovery dialog
       setShowRecoveryDialog(false);
       setRecoveryData(null);
-      
-      toast.success("Data recovered successfully!");
     } else {
-      toast.error("Failed to recover data");
+      toast.error("Failed to recover data - backup may be corrupted");
     }
   };
 
